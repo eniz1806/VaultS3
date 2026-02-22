@@ -1,0 +1,23 @@
+# Binary
+vaults3
+*.exe
+
+# Data directories
+data/
+metadata/
+
+# Go
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Web dashboard build
+web/dist/
+web/node_modules/

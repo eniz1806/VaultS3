@@ -1,0 +1,15 @@
+server:
+  address: "0.0.0.0"
+  port: 9000
+
+storage:
+  data_dir: "./data"
+  metadata_dir: "./metadata"
+
+auth:
+  admin_access_key: "vaults3-admin"
+  admin_secret_key: "vaults3-secret-change-me"
+
+encryption:
+  enabled: false
+  key: ""
