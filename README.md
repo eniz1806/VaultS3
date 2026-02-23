@@ -38,7 +38,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **STS temporary credentials** — Short-lived access keys with configurable TTL, auto-cleanup of expired keys
 - **Audit trail** — Persistent audit log with filtering by user, bucket, time range; auto-pruning via lifecycle worker
 - **IP allowlist/blocklist** — Global and per-user CIDR-based IP restrictions with IPv4/IPv6 support
-- **S3 event notifications** — Per-bucket webhook notifications on object mutations with event type and key prefix/suffix filtering
+- **S3 event notifications** — Per-bucket webhook notifications on object mutations with event type and key prefix/suffix filtering, plus Kafka, NATS, and Redis backends
 - **Async replication** — One-way async replication to peer VaultS3 instances with BoltDB-backed queue, retry with exponential backoff, and loop prevention
 - **CLI tool** — Standalone `vaults3-cli` binary for bucket, object, user, and replication management without AWS CLI
 - **Presigned upload restrictions** — Enforce max file size, content type whitelist, and key prefix on presigned PUT URLs
@@ -507,7 +507,22 @@ notifications:
   queue_size: 256      # buffered event queue size
   timeout_secs: 10     # webhook HTTP timeout
   max_retries: 3       # retry attempts for failed webhooks
+  kafka:
+    enabled: true
+    brokers: ["localhost:9092"]
+    topic: "vaults3-events"
+  nats:
+    enabled: true
+    url: "nats://localhost:4222"
+    subject: "vaults3.events"
+  redis:
+    enabled: true
+    addr: "localhost:6379"
+    channel: "vaults3-events"   # pub/sub mode
+    list_key: ""                # set for LPUSH queue mode
 ```
+
+In addition to per-bucket webhooks, you can enable global notification backends. All S3 events are published to every enabled backend. Multiple backends can be active simultaneously. Disabled backends add zero overhead.
 
 ### Async Replication
 
@@ -915,3 +930,4 @@ VaultS3/
 - [x] Rate limiting (token bucket per IP and per access key, 429 responses, auto-cleanup)
 - [x] UploadPartCopy (copy byte ranges from existing objects as multipart parts)
 - [x] S3 Select (SQL queries on CSV and JSON objects, SELECT/WHERE/LIMIT/LIKE/AND/OR)
+- [x] Multi-backend notifications (Kafka, NATS, Redis pub/sub and queue backends)

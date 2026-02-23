@@ -84,10 +84,32 @@ type ReplicationConfig struct {
 }
 
 type NotificationsConfig struct {
-	MaxWorkers  int `yaml:"max_workers"`
-	QueueSize   int `yaml:"queue_size"`
-	TimeoutSecs int `yaml:"timeout_secs"`
-	MaxRetries  int `yaml:"max_retries"`
+	MaxWorkers  int              `yaml:"max_workers"`
+	QueueSize   int              `yaml:"queue_size"`
+	TimeoutSecs int              `yaml:"timeout_secs"`
+	MaxRetries  int              `yaml:"max_retries"`
+	Kafka       KafkaNotifyConfig `yaml:"kafka"`
+	NATS        NATSNotifyConfig  `yaml:"nats"`
+	Redis       RedisNotifyConfig `yaml:"redis"`
+}
+
+type KafkaNotifyConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Brokers []string `yaml:"brokers"`
+	Topic   string   `yaml:"topic"`
+}
+
+type NATSNotifyConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	URL     string `yaml:"url"`
+	Subject string `yaml:"subject"`
+}
+
+type RedisNotifyConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Addr    string `yaml:"addr"`
+	Channel string `yaml:"channel"`
+	ListKey string `yaml:"list_key"`
 }
 
 type SecurityConfig struct {

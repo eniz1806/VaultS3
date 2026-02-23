@@ -41,6 +41,19 @@ notifications:
   queue_size: 256      # buffered event queue size
   timeout_secs: 10     # webhook HTTP timeout
   max_retries: 3       # retry attempts for failed webhooks
+  kafka:
+    enabled: false
+    brokers: ["localhost:9092"]
+    topic: "vaults3-events"
+  nats:
+    enabled: false
+    url: "nats://localhost:4222"
+    subject: "vaults3.events"
+  redis:
+    enabled: false
+    addr: "localhost:6379"
+    channel: "vaults3-events"
+    list_key: ""        # set to use LPUSH queue mode instead of pub/sub
 
 replication:
   enabled: false

@@ -152,6 +152,23 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize notification dispatcher
 	nc := cfg.Notifications
 	notifyDispatcher := notify.NewDispatcher(store, nc.MaxWorkers, nc.QueueSize, nc.TimeoutSecs, nc.MaxRetries)
+
+	// Register notification backends
+	if nc.Kafka.Enabled && len(nc.Kafka.Brokers) > 0 && nc.Kafka.Topic != "" {
+		notifyDispatcher.AddBackend(notify.NewKafkaBackend(nc.Kafka.Brokers, nc.Kafka.Topic))
+	}
+	if nc.NATS.Enabled && nc.NATS.URL != "" && nc.NATS.Subject != "" {
+		natsBackend, err := notify.NewNATSBackend(nc.NATS.URL, nc.NATS.Subject)
+		if err != nil {
+			log.Printf("Warning: NATS backend failed to connect: %v", err)
+		} else {
+			notifyDispatcher.AddBackend(natsBackend)
+		}
+	}
+	if nc.Redis.Enabled && nc.Redis.Addr != "" {
+		notifyDispatcher.AddBackend(notify.NewRedisBackend(nc.Redis.Addr, nc.Redis.Channel, nc.Redis.ListKey))
+	}
+
 	s3h.SetNotificationFunc(func(eventType, bucket, key string, size int64, etag, versionID string) {
 		notifyDispatcher.Dispatch(bucket, key, eventType, size, etag, versionID)
 	})

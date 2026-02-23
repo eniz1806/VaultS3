@@ -42,6 +42,13 @@ type S3Object struct {
 	VersionID string `json:"versionId,omitempty"`
 }
 
+// Backend is the interface for notification delivery backends.
+type Backend interface {
+	Name() string
+	Publish(ctx context.Context, payload []byte) error
+	Close() error
+}
+
 type deliveryJob struct {
 	endpoint   string
 	payload    []byte
@@ -58,6 +65,8 @@ type Dispatcher struct {
 	maxWorkers int
 	maxRetries int
 	backoff    []time.Duration
+	backends   []Backend
+	mu         sync.Mutex
 }
 
 func NewDispatcher(store *metadata.Store, maxWorkers, queueSize, timeoutSecs, maxRetries int) *Dispatcher {
@@ -91,9 +100,22 @@ func (d *Dispatcher) Start(ctx context.Context) {
 	}
 }
 
+// AddBackend registers a notification backend.
+func (d *Dispatcher) AddBackend(b Backend) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.backends = append(d.backends, b)
+	log.Printf("[Notify] backend registered: %s", b.Name())
+}
+
 func (d *Dispatcher) Stop() {
 	close(d.workerCh)
 	d.wg.Wait()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, b := range d.backends {
+		b.Close()
+	}
 }
 
 // Dispatch checks notification configs for the bucket and fires matching webhooks.
@@ -125,6 +147,17 @@ func (d *Dispatcher) Dispatch(bucket, key, eventType string, size int64, etag, v
 	if err != nil {
 		log.Printf("[Notify] error marshaling event: %v", err)
 		return
+	}
+
+	// Publish to all registered backends
+	d.mu.Lock()
+	backends := make([]Backend, len(d.backends))
+	copy(backends, d.backends)
+	d.mu.Unlock()
+	for _, b := range backends {
+		if err := b.Publish(context.Background(), payload); err != nil {
+			log.Printf("[Notify] backend %s publish error: %v", b.Name(), err)
+		}
 	}
 
 	for _, wh := range cfg.Webhooks {
