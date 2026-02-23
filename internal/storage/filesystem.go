@@ -38,30 +38,31 @@ func (fs *FileSystem) DeleteBucketDir(bucket string) error {
 	return os.RemoveAll(fs.bucketPath(bucket))
 }
 
-func (fs *FileSystem) PutObject(bucket, key string, reader io.Reader, size int64) (int64, error) {
+func (fs *FileSystem) PutObject(bucket, key string, reader io.Reader, size int64) (int64, string, error) {
 	objPath := fs.objectPath(bucket, key)
 
-	// Create parent directories for nested keys (e.g., "folder/file.txt")
 	if err := os.MkdirAll(filepath.Dir(objPath), 0755); err != nil {
-		return 0, fmt.Errorf("create object dir: %w", err)
+		return 0, "", fmt.Errorf("create object dir: %w", err)
 	}
 
 	f, err := os.Create(objPath)
 	if err != nil {
-		return 0, fmt.Errorf("create object file: %w", err)
+		return 0, "", fmt.Errorf("create object file: %w", err)
 	}
 	defer f.Close()
 
-	written, err := io.Copy(f, reader)
+	h := md5.New()
+	written, err := io.Copy(f, io.TeeReader(reader, h))
 	if err != nil {
 		os.Remove(objPath)
-		return 0, fmt.Errorf("write object: %w", err)
+		return 0, "", fmt.Errorf("write object: %w", err)
 	}
 
-	return written, nil
+	etag := fmt.Sprintf("\"%x\"", h.Sum(nil))
+	return written, etag, nil
 }
 
-func (fs *FileSystem) GetObject(bucket, key string) (io.ReadCloser, int64, error) {
+func (fs *FileSystem) GetObject(bucket, key string) (ReadSeekCloser, int64, error) {
 	objPath := fs.objectPath(bucket, key)
 
 	info, err := os.Stat(objPath)
@@ -121,26 +122,21 @@ func (fs *FileSystem) ListObjects(bucket, prefix, startAfter string, maxKeys int
 	var objects []ObjectInfo
 	err := filepath.Walk(bucketDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // skip errors
+			return nil
 		}
 		if info.IsDir() {
 			return nil
 		}
 
-		// Get relative key
 		rel, err := filepath.Rel(bucketDir, path)
 		if err != nil {
 			return nil
 		}
-		// Normalize to forward slashes for S3 compatibility
 		key := strings.ReplaceAll(rel, string(filepath.Separator), "/")
 
-		// Apply prefix filter
 		if prefix != "" && !strings.HasPrefix(key, prefix) {
 			return nil
 		}
-
-		// Apply startAfter filter
 		if startAfter != "" && key <= startAfter {
 			return nil
 		}
@@ -158,12 +154,10 @@ func (fs *FileSystem) ListObjects(bucket, prefix, startAfter string, maxKeys int
 		return nil, false, fmt.Errorf("walk bucket: %w", err)
 	}
 
-	// Sort by key
 	sort.Slice(objects, func(i, j int) bool {
 		return objects[i].Key < objects[j].Key
 	})
 
-	// Apply maxKeys limit
 	truncated := false
 	if maxKeys > 0 && len(objects) > maxKeys {
 		objects = objects[:maxKeys]

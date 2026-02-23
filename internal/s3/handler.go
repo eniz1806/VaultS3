@@ -61,8 +61,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case http.MethodHead:
 			h.buckets.HeadBucket(w, r, bucket)
 		case http.MethodGet:
-			// GET on bucket = ListObjectsV2
 			h.objects.ListObjects(w, r, bucket)
+		case http.MethodPost:
+			// POST /{bucket}?delete = Batch delete
+			if _, ok := r.URL.Query()["delete"]; ok {
+				h.objects.BatchDelete(w, r, bucket)
+			} else {
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
 		default:
 			writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -71,7 +77,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Object-level operations
 		switch r.Method {
 		case http.MethodPut:
-			h.objects.PutObject(w, r, bucket, key)
+			// Check for copy operation
+			if r.Header.Get("X-Amz-Copy-Source") != "" {
+				h.objects.CopyObject(w, r, bucket, key)
+			} else {
+				h.objects.PutObject(w, r, bucket, key)
+			}
 		case http.MethodGet:
 			h.objects.GetObject(w, r, bucket, key)
 		case http.MethodDelete:

@@ -26,3 +26,31 @@ func writeXML(w http.ResponseWriter, status int, v interface{}) {
 	w.Write([]byte(xml.Header))
 	xml.NewEncoder(w).Encode(v)
 }
+
+// Batch delete XML types
+
+type deleteRequest struct {
+	XMLName xml.Name       `xml:"Delete"`
+	Quiet   bool           `xml:"Quiet"`
+	Objects []deleteObject `xml:"Object"`
+}
+
+type deleteObject struct {
+	Key string `xml:"Key"`
+}
+
+type deleteResult struct {
+	XMLName xml.Name        `xml:"DeleteResult"`
+	Deleted []deletedObject `xml:"Deleted"`
+	Errors  []deleteError   `xml:"Error"`
+}
+
+type deletedObject struct {
+	Key string `xml:"Key"`
+}
+
+type deleteError struct {
+	Key     string `xml:"Key"`
+	Code    string `xml:"Code"`
+	Message string `xml:"Message"`
+}
