@@ -150,6 +150,18 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/scanner/quarantine" && r.Method == http.MethodGet:
 		h.handleQuarantineList(w, r)
 
+	// Versioning routes
+	case path == "/versions/diff" && r.Method == http.MethodGet:
+		h.handleVersionDiff(w, r)
+	case path == "/versions/tags" && r.Method == http.MethodGet:
+		h.handleVersionTags(w, r)
+	case path == "/versions/tags" && r.Method == http.MethodPost:
+		h.handleCreateTag(w, r)
+	case path == "/versions/tags" && r.Method == http.MethodDelete:
+		h.handleDeleteTag(w, r)
+	case path == "/versions/rollback" && r.Method == http.MethodPost:
+		h.handleRollback(w, r)
+
 	// Tiering routes
 	case path == "/tiering/status" && r.Method == http.MethodGet:
 		h.handleTieringStatus(w, r)

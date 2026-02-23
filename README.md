@@ -44,6 +44,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Webhook virus scanning** — POST uploaded objects to a configurable scan endpoint (ClamAV, VirusTotal, etc.) with quarantine bucket for infected files
 - **Data tiering** — Automatic hot/cold storage migration based on access patterns with transparent reads and manual migration API
 - **Backup scheduler** — Scheduled full/incremental backups to local directory targets with cron-like scheduling and backup history
+- **Git-like versioning** — Visual diff between object versions (text and binary), version tagging with labels, one-click rollback to any version
+- **FUSE mount** — Mount VaultS3 buckets as local filesystem directories with read/write support, lazy loading, and SigV4 authentication
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -92,6 +94,9 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Backup List | `GET /api/v1/backups` | Done |
 | Backup Trigger | `POST /api/v1/backups/trigger` | Done |
 | Backup Status | `GET /api/v1/backups/status` | Done |
+| Version Diff | `GET /api/v1/versions/diff` | Done |
+| Version Tags | `GET/POST/DELETE /api/v1/versions/tags` | Done |
+| Version Rollback | `POST /api/v1/versions/rollback` | Done |
 
 ## Quick Start
 
@@ -688,6 +693,60 @@ curl -X POST http://localhost:9000/api/v1/backups/trigger -H "Authorization: Bea
 
 Incremental backups only copy objects modified since the last successful backup. Full backups mirror the complete object store.
 
+### Git-like Versioning
+
+Compare, tag, and rollback object versions:
+
+```bash
+# Diff two versions (text files show line-by-line diff, binary shows metadata only)
+curl "http://localhost:9000/api/v1/versions/diff?bucket=my-bucket&key=file.txt&v1=VERSION_A&v2=VERSION_B" \
+  -H "Authorization: Bearer <token>"
+
+# Tag a version with a label
+curl -X POST http://localhost:9000/api/v1/versions/tags \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"bucket":"my-bucket","key":"file.txt","versionId":"VERSION_ID","tag":"v1.0"}'
+
+# List tags for an object
+curl "http://localhost:9000/api/v1/versions/tags?bucket=my-bucket&key=file.txt" \
+  -H "Authorization: Bearer <token>"
+
+# Delete a tag
+curl -X DELETE "http://localhost:9000/api/v1/versions/tags?bucket=my-bucket&key=file.txt&tag=v1.0" \
+  -H "Authorization: Bearer <token>"
+
+# Rollback to a specific version (copies old version content as latest)
+curl -X POST http://localhost:9000/api/v1/versions/rollback \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"bucket":"my-bucket","key":"file.txt","versionId":"VERSION_ID"}'
+```
+
+Text diffs use LCS (Longest Common Subsequence) to produce unified diffs with add/remove/equal lines. Binary files show only size and metadata differences.
+
+### FUSE Mount
+
+Mount a VaultS3 bucket as a local filesystem directory:
+
+```bash
+# Mount a bucket (requires macFUSE on macOS or FUSE on Linux)
+vaults3-cli mount my-bucket /mnt/vaults3
+
+# Browse files
+ls /mnt/vaults3
+cat /mnt/vaults3/docs/readme.txt
+
+# Write files (creates objects in VaultS3)
+echo "hello" > /mnt/vaults3/new-file.txt
+
+# Unmount
+# Press Ctrl+C in the mount terminal, or:
+fusermount -u /mnt/vaults3
+```
+
+FUSE mount uses range requests for lazy loading — only the requested bytes are fetched from the server. Write support buffers data and uploads on file close.
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -718,6 +777,8 @@ VaultS3/
 │   ├── scanner/               — Webhook virus scanning with quarantine
 │   ├── tiering/               — Hot/cold data tiering manager
 │   ├── backup/                — Backup scheduler with local targets
+│   ├── versioning/            — Version diff (LCS), tagging, rollback
+│   ├── fuse/                  — FUSE filesystem mount (go-fuse/v2)
 │   ├── api/                   — Dashboard REST API (JWT auth, IAM, STS, audit)
 │   └── dashboard/             — Embedded React SPA
 ├── web/                       — React dashboard source (Vite + Tailwind)
@@ -783,3 +844,5 @@ VaultS3/
 - [x] Webhook virus scanning (ClamAV/VirusTotal integration, quarantine bucket, fail-open/closed modes)
 - [x] Data tiering (hot/cold storage, automatic migration based on access patterns, transparent reads, manual migration API)
 - [x] Backup scheduler (full/incremental backups to local targets, cron scheduling, backup history, trigger API)
+- [x] Git-like versioning (visual diff with LCS, version tagging with labels, one-click rollback)
+- [x] FUSE mount (mount buckets as local filesystem, read/write, lazy loading via range requests)

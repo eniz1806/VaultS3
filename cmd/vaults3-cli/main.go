@@ -90,6 +90,10 @@ func main() {
 		runUser(cmdArgs)
 	case "replication":
 		runReplication(cmdArgs)
+	case "mount":
+		runMount(cmdArgs)
+	case "umount":
+		runUmount(cmdArgs)
 	case "version":
 		fmt.Printf("vaults3-cli %s\n", version)
 	case "help":
@@ -116,6 +120,8 @@ Commands:
   object               Object operations (ls, put, get, rm, cp, presign)
   user                 IAM user operations (list, create, delete, attach-policy)
   replication          Replication operations (status, queue)
+  mount                Mount a bucket as a local filesystem (FUSE)
+  umount               Unmount a FUSE mountpoint
   version              Show version
   help                 Show this help`)
 }
