@@ -5,6 +5,9 @@ import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import BucketsPage from './pages/BucketsPage'
 import BucketDetailPage from './pages/BucketDetailPage'
+import FileBrowserPage from './pages/FileBrowserPage'
+import AccessKeysPage from './pages/AccessKeysPage'
+import StatsPage from './pages/StatsPage'
 
 export default function App() {
   return (
@@ -17,6 +20,9 @@ export default function App() {
               <Route index element={<Navigate to="/buckets" replace />} />
               <Route path="/buckets" element={<BucketsPage />} />
               <Route path="/buckets/:name" element={<BucketDetailPage />} />
+              <Route path="/buckets/:name/files" element={<FileBrowserPage />} />
+              <Route path="/access-keys" element={<AccessKeysPage />} />
+              <Route path="/stats" element={<StatsPage />} />
             </Route>
           </Route>
         </Routes>

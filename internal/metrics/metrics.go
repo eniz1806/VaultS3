@@ -77,6 +77,11 @@ func NewCollector(store *metadata.Store, engine storage.Engine) *Collector {
 	}
 }
 
+// StartTime returns when the collector was created (server start time).
+func (c *Collector) StartTime() time.Time {
+	return c.startTime
+}
+
 // RecordRequest increments the request counter for the given method.
 func (c *Collector) RecordRequest(method string) {
 	c.requestsTotal[methodIndex(method)].Add(1)

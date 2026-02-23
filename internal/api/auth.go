@@ -50,16 +50,22 @@ func (h *APIHandler) handleMe(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *APIHandler) authenticate(r *http.Request) error {
+	// Check Authorization header first
 	auth := r.Header.Get("Authorization")
-	if auth == "" {
-		return fmt.Errorf("missing authorization header")
+	if auth != "" {
+		token := strings.TrimPrefix(auth, "Bearer ")
+		if token == auth {
+			return fmt.Errorf("invalid authorization format")
+		}
+		_, err := h.jwt.Validate(token)
+		return err
 	}
 
-	token := strings.TrimPrefix(auth, "Bearer ")
-	if token == auth {
-		return fmt.Errorf("invalid authorization format")
+	// Fall back to query param (for browser download links)
+	if token := r.URL.Query().Get("token"); token != "" {
+		_, err := h.jwt.Validate(token)
+		return err
 	}
 
-	_, err := h.jwt.Validate(token)
-	return err
+	return fmt.Errorf("missing authorization")
 }

@@ -21,7 +21,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Virtual-hosted style URLs** — `bucket.domain/key` in addition to path-style
 - **Prometheus metrics** — `/metrics` endpoint with storage, request, and runtime stats
 - **Presigned URLs** — Pre-authenticated URL generation
-- **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, bucket management
+- **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, file browser, access key management, storage stats
 - **YAML config** — Simple configuration, sensible defaults
 
 ## Supported S3 Operations
@@ -123,6 +123,9 @@ The built-in dashboard is available at `http://localhost:9000/dashboard/`. Login
 
 - Bucket browser — list, create, delete buckets
 - Bucket detail — view/edit policies and quotas
+- File browser — list, upload (drag & drop), download, delete objects with folder navigation
+- Access key management — create, list, revoke S3 API keys
+- Storage stats — total storage, per-bucket breakdown, runtime metrics
 - JWT-based authentication (24h tokens)
 
 The dashboard is embedded into the binary — no separate web server needed.
@@ -189,7 +192,7 @@ VaultS3/
 - [x] Quota management (per-bucket)
 - [x] Virtual-hosted style URLs
 - [x] Prometheus-compatible metrics
-- [x] Web dashboard with built-in UI (login, bucket browser, policy/quota editors)
+- [x] Web dashboard with built-in UI (login, bucket browser, file management, access keys, stats)
 - [ ] Object versioning
 - [ ] Object locking (WORM)
 - [ ] Lifecycle rules

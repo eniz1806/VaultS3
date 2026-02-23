@@ -87,7 +87,15 @@ export default function BucketDetailPage() {
         <span className="text-gray-900 dark:text-white font-medium">{bucket.name}</span>
       </div>
 
-      <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">{bucket.name}</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{bucket.name}</h2>
+        <Link
+          to={`/buckets/${bucket.name}/files`}
+          className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors"
+        >
+          Browse Files
+        </Link>
+      </div>
 
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm">
