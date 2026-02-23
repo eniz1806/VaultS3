@@ -23,6 +23,7 @@ type ObjectHandler struct {
 	engine            storage.Engine
 	encryptionEnabled bool
 	onNotification    NotificationFunc
+	onReplication     ReplicationFunc
 }
 
 // checkQuota verifies bucket quota limits before writing.
@@ -121,6 +122,9 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		if h.onNotification != nil {
 			h.onNotification("s3:ObjectCreated:Put", bucket, key, written, etag, versionID)
 		}
+		if h.onReplication != nil {
+			h.onReplication("s3:ObjectCreated:Put", bucket, key, written, etag, versionID)
+		}
 		return
 	}
 
@@ -147,6 +151,9 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 	w.WriteHeader(http.StatusOK)
 	if h.onNotification != nil {
 		h.onNotification("s3:ObjectCreated:Put", bucket, key, written, etag, "")
+	}
+	if h.onReplication != nil {
+		h.onReplication("s3:ObjectCreated:Put", bucket, key, written, etag, "")
 	}
 }
 
@@ -334,6 +341,9 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 		if h.onNotification != nil {
 			h.onNotification("s3:ObjectRemoved:Delete", bucket, key, 0, "", versionID)
 		}
+		if h.onReplication != nil {
+			h.onReplication("s3:ObjectRemoved:Delete", bucket, key, 0, "", versionID)
+		}
 		return
 	}
 
@@ -364,6 +374,9 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 		if h.onNotification != nil {
 			h.onNotification("s3:ObjectRemoved:Delete", bucket, key, 0, "", dmVersionID)
 		}
+		if h.onReplication != nil {
+			h.onReplication("s3:ObjectRemoved:Delete", bucket, key, 0, "", dmVersionID)
+		}
 		return
 	}
 
@@ -377,6 +390,9 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 	w.WriteHeader(http.StatusNoContent)
 	if h.onNotification != nil {
 		h.onNotification("s3:ObjectRemoved:Delete", bucket, key, 0, "", "")
+	}
+	if h.onReplication != nil {
+		h.onReplication("s3:ObjectRemoved:Delete", bucket, key, 0, "", "")
 	}
 }
 
@@ -535,6 +551,9 @@ func (h *ObjectHandler) CopyObject(w http.ResponseWriter, r *http.Request, bucke
 	if h.onNotification != nil {
 		h.onNotification("s3:ObjectCreated:Copy", bucket, key, written, etag, "")
 	}
+	if h.onReplication != nil {
+		h.onReplication("s3:ObjectCreated:Copy", bucket, key, written, etag, "")
+	}
 }
 
 func parseCopySource(source string) (bucket, key string) {
@@ -574,6 +593,9 @@ func (h *ObjectHandler) BatchDelete(w http.ResponseWriter, r *http.Request, buck
 			}
 			if h.onNotification != nil {
 				h.onNotification("s3:ObjectRemoved:Delete", bucket, obj.Key, 0, "", "")
+			}
+			if h.onReplication != nil {
+				h.onReplication("s3:ObjectRemoved:Delete", bucket, obj.Key, 0, "", "")
 			}
 		}
 	}

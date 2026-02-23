@@ -19,6 +19,7 @@ import (
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
 	"github.com/eniz1806/VaultS3/internal/notify"
+	"github.com/eniz1806/VaultS3/internal/replication"
 	"github.com/eniz1806/VaultS3/internal/s3"
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
@@ -30,8 +31,9 @@ type Server struct {
 	s3h       *s3.Handler
 	metrics   *metrics.Collector
 	activity  *api.ActivityLog
-	accessLog  *accesslog.AccessLogger
-	notifyDisp *notify.Dispatcher
+	accessLog   *accesslog.AccessLogger
+	notifyDisp  *notify.Dispatcher
+	replWorker  *replication.Worker
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -144,6 +146,29 @@ func New(cfg *config.Config) (*Server, error) {
 		notifyDispatcher.Dispatch(bucket, key, eventType, size, etag, versionID)
 	})
 
+	// Initialize replication worker if enabled
+	var replWorker *replication.Worker
+	if cfg.Replication.Enabled && len(cfg.Replication.Peers) > 0 {
+		replWorker = replication.NewWorker(store, engine, cfg.Replication)
+		s3h.SetReplicationFunc(func(eventType, bucket, key string, size int64, etag, versionID string) {
+			evtType := "put"
+			if eventType == "s3:ObjectRemoved:Delete" {
+				evtType = "delete"
+			}
+			for _, peer := range cfg.Replication.Peers {
+				store.EnqueueReplication(metadata.ReplicationEvent{
+					Type:   evtType,
+					Bucket: bucket,
+					Key:    key,
+					ETag:   etag,
+					Peer:   peer.Name,
+					Size:   size,
+				})
+			}
+		})
+		log.Printf("  Replication:  enabled (%d peers, scan every %ds)", len(cfg.Replication.Peers), cfg.Replication.ScanIntervalSecs)
+	}
+
 	// Initialize built-in IAM policies
 	initBuiltinPolicies(store)
 
@@ -156,6 +181,7 @@ func New(cfg *config.Config) (*Server, error) {
 		activity:   activityLog,
 		accessLog:  accessLogger,
 		notifyDisp: notifyDispatcher,
+		replWorker: replWorker,
 	}, nil
 }
 
@@ -213,6 +239,13 @@ func (s *Server) Run() error {
 	defer notifyCancel()
 	s.notifyDisp.Start(notifyCtx)
 	log.Printf("  Notifications: %d workers, queue size %d", s.cfg.Notifications.MaxWorkers, s.cfg.Notifications.QueueSize)
+
+	// Start replication worker if enabled
+	if s.replWorker != nil {
+		replCtx, replCancel := context.WithCancel(context.Background())
+		defer replCancel()
+		go s.replWorker.Run(replCtx)
+	}
 
 	// Start server in goroutine
 	errCh := make(chan error, 1)

@@ -18,6 +18,22 @@ type Config struct {
 	Lifecycle     LifecycleConfig     `yaml:"lifecycle"`
 	Security      SecurityConfig      `yaml:"security"`
 	Notifications NotificationsConfig `yaml:"notifications"`
+	Replication   ReplicationConfig   `yaml:"replication"`
+}
+
+type ReplicationPeer struct {
+	Name      string `yaml:"name"`
+	URL       string `yaml:"url"`
+	AccessKey string `yaml:"access_key"`
+	SecretKey string `yaml:"secret_key"`
+}
+
+type ReplicationConfig struct {
+	Enabled          bool              `yaml:"enabled"`
+	Peers            []ReplicationPeer `yaml:"peers"`
+	ScanIntervalSecs int              `yaml:"scan_interval_secs"`
+	MaxRetries       int              `yaml:"max_retries"`
+	BatchSize        int              `yaml:"batch_size"`
 }
 
 type NotificationsConfig struct {
@@ -122,6 +138,11 @@ func Load(path string) (*Config, error) {
 			QueueSize:   256,
 			TimeoutSecs: 10,
 			MaxRetries:  3,
+		},
+		Replication: ReplicationConfig{
+			ScanIntervalSecs: 30,
+			MaxRetries:       5,
+			BatchSize:        100,
 		},
 	}
 

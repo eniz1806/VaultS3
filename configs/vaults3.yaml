@@ -41,3 +41,10 @@ notifications:
   queue_size: 256      # buffered event queue size
   timeout_secs: 10     # webhook HTTP timeout
   max_retries: 3       # retry attempts for failed webhooks
+
+replication:
+  enabled: false
+  peers: []            # list of {name, url, access_key, secret_key}
+  scan_interval_secs: 30
+  max_retries: 5
+  batch_size: 100

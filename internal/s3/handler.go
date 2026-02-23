@@ -20,6 +20,9 @@ type AuditFunc func(principal, userID, action, resource, effect, sourceIP string
 // NotificationFunc is called after object mutations to trigger event notifications.
 type NotificationFunc func(eventType, bucket, key string, size int64, etag, versionID string)
 
+// ReplicationFunc is called after object mutations to enqueue replication events.
+type ReplicationFunc func(eventType, bucket, key string, size int64, etag, versionID string)
+
 // Handler routes incoming S3 API requests to the appropriate handler.
 type Handler struct {
 	store             *metadata.Store
@@ -33,6 +36,7 @@ type Handler struct {
 	onActivity        ActivityFunc
 	onAudit           AuditFunc
 	onNotification    NotificationFunc
+	onReplication     ReplicationFunc
 }
 
 func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
@@ -63,6 +67,12 @@ func (h *Handler) SetAuditFunc(fn AuditFunc) {
 func (h *Handler) SetNotificationFunc(fn NotificationFunc) {
 	h.onNotification = fn
 	h.objects.onNotification = fn
+}
+
+// SetReplicationFunc sets the callback for replication event enqueueing.
+func (h *Handler) SetReplicationFunc(fn ReplicationFunc) {
+	h.onReplication = fn
+	h.objects.onReplication = fn
 }
 
 // statusWriter wraps ResponseWriter to capture the status code.
@@ -171,6 +181,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			resource := formatResource(bucket, key)
 			h.onAudit(identity.AccessKey, identity.UserID, action, resource, "Allow", clientIP, 0)
 		}
+	}
+
+	// Replication loop prevention: disable notification and replication callbacks
+	// for requests that originated from a replication peer.
+	if r.Header.Get("X-VaultS3-Replication") != "" {
+		h.objects.onNotification = nil
+		h.objects.onReplication = nil
+		defer func() {
+			h.objects.onNotification = h.onNotification
+			h.objects.onReplication = h.onReplication
+		}()
 	}
 
 	// Static website serving — intercept before normal routing

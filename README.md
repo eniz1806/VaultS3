@@ -37,6 +37,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Audit trail** — Persistent audit log with filtering by user, bucket, time range; auto-pruning via lifecycle worker
 - **IP allowlist/blocklist** — Global and per-user CIDR-based IP restrictions with IPv4/IPv6 support
 - **S3 event notifications** — Per-bucket webhook notifications on object mutations with event type and key prefix/suffix filtering
+- **Async replication** — One-way async replication to peer VaultS3 instances with BoltDB-backed queue, retry with exponential backoff, and loop prevention
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -74,6 +75,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | IP Restrictions | `PUT /api/v1/iam/users/{name}/ip-restrictions` | Done |
 | Bucket Notifications | `PUT/GET/DELETE /{bucket}?notification` | Done |
 | Notification Configs | `GET /api/v1/notifications` | Done |
+| Replication Status | `GET /api/v1/replication/status` | Done |
+| Replication Queue | `GET /api/v1/replication/queue` | Done |
 
 ## Quick Start
 
@@ -481,6 +484,30 @@ notifications:
   max_retries: 3       # retry attempts for failed webhooks
 ```
 
+### Async Replication
+
+Replicate objects to a peer VaultS3 instance automatically:
+
+```yaml
+replication:
+  enabled: true
+  peers:
+    - name: "dc2"
+      url: "http://peer-vaults3:9000"
+      access_key: "peer-admin"
+      secret_key: "peer-secret"
+  scan_interval_secs: 30   # queue processing interval
+  max_retries: 5           # retry before dead-letter
+  batch_size: 100          # events per scan cycle
+```
+
+Objects PUT, copied, or deleted on the primary are asynchronously replicated to all configured peers via S3 API. Buckets are auto-created on peers. Failed deliveries retry with exponential backoff (5s, 15s, 45s, 135s, 405s). The `X-VaultS3-Replication` header prevents infinite loops. Monitor via dashboard API:
+
+```bash
+curl http://localhost:9000/api/v1/replication/status   # per-peer sync stats
+curl http://localhost:9000/api/v1/replication/queue     # pending queue entries
+```
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -505,6 +532,7 @@ VaultS3/
 │   ├── metrics/               — Prometheus-compatible metrics collector
 │   ├── iam/                   — IAM policy engine, identity, IP access control
 │   ├── notify/                — Event notification dispatcher (webhook delivery)
+│   ├── replication/           — Async replication worker (SigV4 signer, queue processor)
 │   ├── api/                   — Dashboard REST API (JWT auth, IAM, STS, audit)
 │   └── dashboard/             — Embedded React SPA
 ├── web/                       — React dashboard source (Vite + Tailwind)
@@ -563,4 +591,4 @@ VaultS3/
 - [x] Audit trail (persistent log, filtering by user/bucket/time, auto-pruning)
 - [x] IP allowlist/blocklist (global and per-user CIDR restrictions, IPv4/IPv6)
 - [x] S3 event notifications (per-bucket webhooks, event type + prefix/suffix filtering, retry with backoff)
-- [ ] Replication
+- [x] Async replication (one-way to peer VaultS3 instances, BoltDB queue, retry with exponential backoff, loop prevention)

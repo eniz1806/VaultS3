@@ -123,6 +123,12 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/notifications" && r.Method == http.MethodGet:
 		h.handleListNotifications(w, r)
 
+	// Replication routes
+	case path == "/replication/status" && r.Method == http.MethodGet:
+		h.handleReplicationStatus(w, r)
+	case path == "/replication/queue" && r.Method == http.MethodGet:
+		h.handleReplicationQueue(w, r)
+
 	// Stats route
 	case path == "/stats" && r.Method == http.MethodGet:
 		h.handleStats(w, r)
