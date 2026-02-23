@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/eniz1806/VaultS3/internal/metadata"
+	"github.com/eniz1806/VaultS3/internal/metrics"
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
 
@@ -17,14 +18,18 @@ type Handler struct {
 	buckets           *BucketHandler
 	objects           *ObjectHandler
 	encryptionEnabled bool
+	domain            string // base domain for virtual-hosted style URLs
+	metrics           *metrics.Collector
 }
 
-func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool) *Handler {
+func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
 	h := &Handler{
 		store:             store,
 		engine:            engine,
 		auth:              auth,
 		encryptionEnabled: encryptionEnabled,
+		domain:            domain,
+		metrics:           mc,
 	}
 	h.buckets = &BucketHandler{store: store, engine: engine}
 	h.objects = &ObjectHandler{store: store, engine: engine, encryptionEnabled: encryptionEnabled}
@@ -32,11 +37,19 @@ func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticato
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Parse bucket and key from path: /{bucket} or /{bucket}/{key...}
+	// Parse bucket and key — support both path-style and virtual-hosted style
 	path := strings.TrimPrefix(r.URL.Path, "/")
-	bucket, key := parsePath(path)
+	bucket, key := h.parseRequest(r.Host, path)
 
 	log.Printf("[S3] %s /%s/%s", r.Method, bucket, key)
+
+	// Record request metrics
+	if h.metrics != nil {
+		h.metrics.RecordRequest(r.Method)
+		if r.ContentLength > 0 {
+			h.metrics.RecordBytesIn(r.ContentLength)
+		}
+	}
 
 	// Check for public-read policy bypass on GET/HEAD object requests
 	authRequired := true
@@ -175,6 +188,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}
+}
+
+// parseRequest extracts bucket and key from the request.
+// Supports both virtual-hosted style (bucket.domain/key) and path-style (domain/bucket/key).
+func (h *Handler) parseRequest(host, path string) (bucket, key string) {
+	// Strip port from host
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+
+	// Try virtual-hosted style if domain is configured
+	if h.domain != "" && strings.HasSuffix(host, "."+h.domain) {
+		bucket = strings.TrimSuffix(host, "."+h.domain)
+		key = path
+		return
+	}
+
+	// Fall back to path-style
+	return parsePath(path)
 }
 
 func parsePath(path string) (bucket, key string) {

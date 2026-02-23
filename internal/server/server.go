@@ -9,15 +9,17 @@ import (
 
 	"github.com/eniz1806/VaultS3/internal/config"
 	"github.com/eniz1806/VaultS3/internal/metadata"
+	"github.com/eniz1806/VaultS3/internal/metrics"
 	"github.com/eniz1806/VaultS3/internal/s3"
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
 
 type Server struct {
-	cfg    *config.Config
-	store  *metadata.Store
-	engine storage.Engine
-	s3h    *s3.Handler
+	cfg     *config.Config
+	store   *metadata.Store
+	engine  storage.Engine
+	s3h     *s3.Handler
+	metrics *metrics.Collector
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -56,14 +58,18 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize S3 authenticator
 	auth := s3.NewAuthenticator(cfg.Auth.AdminAccessKey, cfg.Auth.AdminSecretKey, store)
 
+	// Initialize metrics collector
+	mc := metrics.NewCollector(store, engine)
+
 	// Initialize S3 handler
-	s3h := s3.NewHandler(store, engine, auth, cfg.Encryption.Enabled)
+	s3h := s3.NewHandler(store, engine, auth, cfg.Encryption.Enabled, cfg.Server.Domain, mc)
 
 	return &Server{
-		cfg:    cfg,
-		store:  store,
-		engine: engine,
-		s3h:    s3h,
+		cfg:     cfg,
+		store:   store,
+		engine:  engine,
+		s3h:     s3h,
+		metrics: mc,
 	}, nil
 }
 
@@ -71,6 +77,7 @@ func (s *Server) Start() error {
 	addr := s.cfg.ListenAddr()
 
 	mux := http.NewServeMux()
+	mux.Handle("/metrics", s.metrics)
 	mux.Handle("/", s.s3h)
 
 	log.Printf("VaultS3 starting on %s", addr)
@@ -79,6 +86,9 @@ func (s *Server) Start() error {
 	log.Printf("  Access key:   %s", s.cfg.Auth.AdminAccessKey)
 	if s.cfg.Encryption.Enabled {
 		log.Printf("  Encryption:   AES-256-GCM")
+	}
+	if s.cfg.Server.Domain != "" {
+		log.Printf("  Domain:       %s (virtual-hosted URLs enabled)", s.cfg.Server.Domain)
 	}
 
 	return http.ListenAndServe(addr, mux)

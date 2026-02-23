@@ -18,6 +18,7 @@ type Config struct {
 type ServerConfig struct {
 	Address string `yaml:"address"`
 	Port    int    `yaml:"port"`
+	Domain  string `yaml:"domain"` // base domain for virtual-hosted URLs (e.g. "localhost", "s3.example.com")
 }
 
 type StorageConfig struct {

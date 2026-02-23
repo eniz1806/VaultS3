@@ -9,6 +9,18 @@ Lightweight, S3-compatible object storage server. Single binary, low memory, zer
 - **Low memory** — Targets <80MB RAM (vs MinIO's 300-500MB)
 - **BoltDB metadata** — Embedded key-value store, no external database needed
 - **S3 Signature V4** — Standard AWS authentication
+- **AES-256-GCM encryption at rest** — Optional server-side encryption with SSE headers
+- **Bucket policies** — Public-read, private, custom S3-compatible JSON policies
+- **Quota management** — Per-bucket size and object count limits
+- **Multipart upload** — Full lifecycle (Create, UploadPart, Complete, Abort)
+- **Multiple access keys** — Dynamic key management via BoltDB
+- **Object tagging** — Up to 10 tags per object
+- **Range requests** — Partial content downloads (206 responses)
+- **Copy object** — Same-bucket and cross-bucket copies
+- **Batch delete** — Multi-object delete with XML body
+- **Virtual-hosted style URLs** — `bucket.domain/key` in addition to path-style
+- **Prometheus metrics** — `/metrics` endpoint with storage, request, and runtime stats
+- **Presigned URLs** — Pre-authenticated URL generation
 - **YAML config** — Simple configuration, sensible defaults
 
 ## Supported S3 Operations
@@ -24,7 +36,14 @@ Lightweight, S3-compatible object storage server. Single binary, low memory, zer
 | Delete Object | `DELETE /{bucket}/{key}` | Done |
 | Head Object | `HEAD /{bucket}/{key}` | Done |
 | List Objects V2 | `GET /{bucket}?prefix=&max-keys=` | Done |
+| Copy Object | `PUT /{bucket}/{key}` + `x-amz-copy-source` | Done |
+| Batch Delete | `POST /{bucket}?delete` | Done |
+| Multipart Upload | `POST/PUT/DELETE /{bucket}/{key}?uploads&uploadId` | Done |
+| Object Tagging | `PUT/GET/DELETE /{bucket}/{key}?tagging` | Done |
+| Bucket Policy | `PUT/GET/DELETE /{bucket}?policy` | Done |
+| Bucket Quota | `PUT/GET /{bucket}?quota` | Done |
 | Presigned URLs | — | Done |
+| Metrics | `GET /metrics` | Done |
 
 ## Quick Start
 
@@ -50,6 +69,7 @@ Edit `configs/vaults3.yaml`:
 server:
   address: "0.0.0.0"
   port: 9000
+  domain: ""  # set to enable virtual-hosted URLs (e.g. "s3.example.com")
 
 storage:
   data_dir: "./data"
@@ -58,7 +78,43 @@ storage:
 auth:
   admin_access_key: "vaults3-admin"
   admin_secret_key: "vaults3-secret-change-me"
+
+encryption:
+  enabled: false
+  key: ""  # 64-character hex string (32 bytes) when enabled
 ```
+
+### Encryption at Rest
+
+Enable AES-256-GCM encryption by setting `encryption.enabled: true` and providing a 32-byte hex key:
+
+```bash
+# Generate a key
+openssl rand -hex 32
+```
+
+When enabled, all objects are encrypted on disk with a random nonce per object. SSE headers (`x-amz-server-side-encryption: AES256`) are included in responses.
+
+### Virtual-Hosted Style URLs
+
+Set `server.domain` to enable virtual-hosted style access:
+
+```yaml
+server:
+  domain: "s3.example.com"
+```
+
+This enables `bucket-name.s3.example.com/key` in addition to the default `s3.example.com/bucket-name/key` path-style.
+
+### Prometheus Metrics
+
+Access metrics at `GET /metrics`:
+
+```bash
+curl http://localhost:9000/metrics
+```
+
+Exposes: request counts by method, bytes in/out, per-bucket storage size and object counts, quota usage, Go runtime stats (goroutines, memory, GC).
 
 ### Test with mc (MinIO Client)
 
@@ -78,9 +134,10 @@ VaultS3/
 ├── internal/
 │   ├── config/                — YAML config loader
 │   ├── server/                — HTTP server and routing
-│   ├── s3/                    — S3 API handlers (auth, buckets, objects)
-│   ├── storage/               — Storage engine interface + filesystem implementation
-│   └── metadata/              — BoltDB metadata store
+│   ├── s3/                    — S3 API handlers (auth, buckets, objects, multipart)
+│   ├── storage/               — Storage engine interface + filesystem + encryption
+│   ├── metadata/              — BoltDB metadata store
+│   └── metrics/               — Prometheus-compatible metrics collector
 ├── configs/vaults3.yaml       — Default configuration
 ├── Makefile                   — Build commands
 └── README.md
@@ -91,6 +148,7 @@ VaultS3/
 - **Go** — net/http (no frameworks)
 - **BoltDB** — Embedded key-value store for metadata
 - **Local filesystem** — Object storage backend
+- **AES-256-GCM** — Server-side encryption (optional)
 
 ## Requirements
 
@@ -99,13 +157,25 @@ VaultS3/
 
 ## Roadmap
 
-- [ ] Multipart upload
-- [ ] Encryption at rest (AES-256)
-- [ ] Bucket policies and ACL
-- [ ] Range requests
-- [ ] Object tagging
+- [x] Core S3 CRUD operations
+- [x] S3 Signature V4 authentication
+- [x] Presigned URLs
+- [x] Content-Type detection and storage
+- [x] Range requests (partial GET)
+- [x] Copy object (same/cross-bucket)
+- [x] Batch delete
+- [x] Multipart upload (full lifecycle)
+- [x] Multiple access keys
+- [x] Object tagging
+- [x] AES-256-GCM encryption at rest
+- [x] Bucket policies (public-read, custom)
+- [x] Quota management (per-bucket)
+- [x] Virtual-hosted style URLs
+- [x] Prometheus-compatible metrics
 - [ ] Web dashboard with built-in UI
 - [ ] Object versioning
+- [ ] Object locking (WORM)
 - [ ] Lifecycle rules
-- [ ] Replication
+- [ ] TLS support
 - [ ] Docker image
+- [ ] Replication

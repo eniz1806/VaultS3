@@ -1,6 +1,7 @@
 server:
   address: "0.0.0.0"
   port: 9000
+  domain: ""  # set to enable virtual-hosted style URLs (e.g. "localhost", "s3.example.com")
 
 storage:
   data_dir: "./data"
