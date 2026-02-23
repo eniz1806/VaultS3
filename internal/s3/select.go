@@ -1,0 +1,595 @@
+package s3
+
+import (
+	"encoding/csv"
+	"encoding/json"
+	"encoding/xml"
+	"fmt"
+	"io"
+	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// SelectObjectContent handles POST /{bucket}/{key}?select&select-type=2.
+func (h *ObjectHandler) SelectObjectContent(w http.ResponseWriter, r *http.Request, bucket, key string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	// Parse the XML request body
+	var req selectRequest
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedXML", "Could not parse SelectObjectContentRequest", http.StatusBadRequest)
+		return
+	}
+
+	if req.ExpressionType != "SQL" {
+		writeS3Error(w, "InvalidArgument", "Only SQL expression type is supported", http.StatusBadRequest)
+		return
+	}
+
+	// Parse SQL expression
+	query, err := parseSQL(req.Expression)
+	if err != nil {
+		writeS3Error(w, "InvalidArgument", fmt.Sprintf("Invalid SQL: %s", err), http.StatusBadRequest)
+		return
+	}
+
+	// Read the object
+	reader, _, err := h.engine.GetObject(bucket, key)
+	if err != nil {
+		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+		return
+	}
+	defer reader.Close()
+
+	// Determine input format
+	var records []map[string]string
+	if req.InputSerialization.CSV != nil {
+		records, err = parseCSVInput(reader, req.InputSerialization.CSV)
+	} else if req.InputSerialization.JSON != nil {
+		records, err = parseJSONInput(reader, req.InputSerialization.JSON)
+	} else {
+		writeS3Error(w, "InvalidArgument", "InputSerialization must specify CSV or JSON", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		writeS3Error(w, "InternalError", fmt.Sprintf("Failed to parse input: %s", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Execute query
+	results := executeQuery(query, records)
+
+	// Write output
+	if req.OutputSerialization.JSON != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		enc := json.NewEncoder(w)
+		for _, rec := range results {
+			enc.Encode(rec)
+		}
+	} else {
+		// Default to CSV output
+		w.Header().Set("Content-Type", "text/csv")
+		w.WriteHeader(http.StatusOK)
+		cw := csv.NewWriter(w)
+		delim := ','
+		if req.OutputSerialization.CSV != nil && req.OutputSerialization.CSV.FieldDelimiter != "" {
+			delim = rune(req.OutputSerialization.CSV.FieldDelimiter[0])
+		}
+		cw.Comma = delim
+
+		// Write header if we have results
+		if len(results) > 0 {
+			var headers []string
+			for k := range results[0] {
+				headers = append(headers, k)
+			}
+			// Sort headers for deterministic output
+			sortStrings(headers)
+			cw.Write(headers)
+
+			for _, rec := range results {
+				var row []string
+				for _, h := range headers {
+					row = append(row, rec[h])
+				}
+				cw.Write(row)
+			}
+		}
+		cw.Flush()
+	}
+}
+
+// XML request types
+
+type selectRequest struct {
+	XMLName             xml.Name            `xml:"SelectObjectContentRequest"`
+	Expression          string              `xml:"Expression"`
+	ExpressionType      string              `xml:"ExpressionType"`
+	InputSerialization  inputSerialization  `xml:"InputSerialization"`
+	OutputSerialization outputSerialization `xml:"OutputSerialization"`
+}
+
+type inputSerialization struct {
+	CSV  *csvInput  `xml:"CSV"`
+	JSON *jsonInput `xml:"JSON"`
+}
+
+type csvInput struct {
+	FileHeaderInfo string `xml:"FileHeaderInfo"` // USE, IGNORE, NONE
+	FieldDelimiter string `xml:"FieldDelimiter"`
+	RecordDelimiter string `xml:"RecordDelimiter"`
+	QuoteCharacter  string `xml:"QuoteCharacter"`
+}
+
+type jsonInput struct {
+	Type string `xml:"Type"` // DOCUMENT or LINES
+}
+
+type outputSerialization struct {
+	CSV  *csvOutput  `xml:"CSV"`
+	JSON *jsonOutput `xml:"JSON"`
+}
+
+type csvOutput struct {
+	FieldDelimiter string `xml:"FieldDelimiter"`
+	RecordDelimiter string `xml:"RecordDelimiter"`
+}
+
+type jsonOutput struct {
+	RecordDelimiter string `xml:"RecordDelimiter"`
+}
+
+// SQL parsing
+
+type selectQuery struct {
+	columns    []string // "*" or list of column names
+	conditions []condition
+	limit      int
+}
+
+type condition struct {
+	column string
+	op     string // =, !=, <, >, <=, >=, LIKE, IS
+	value  string
+	logic  string // AND, OR (for chaining with next condition)
+	isNull bool   // for IS NULL / IS NOT NULL
+	notNull bool
+}
+
+var sqlSelectRe = regexp.MustCompile(`(?i)^SELECT\s+(.+?)\s+FROM\s+s3object(?:\s+(?:s|s3object))?\s*(.*)$`)
+var whereRe = regexp.MustCompile(`(?i)^WHERE\s+(.+)$`)
+var limitRe = regexp.MustCompile(`(?i)\s+LIMIT\s+(\d+)\s*$`)
+
+func parseSQL(expr string) (*selectQuery, error) {
+	expr = strings.TrimSpace(expr)
+	q := &selectQuery{limit: -1}
+
+	// Extract LIMIT clause first
+	if matches := limitRe.FindStringSubmatch(expr); len(matches) == 2 {
+		n, err := strconv.Atoi(matches[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid LIMIT value")
+		}
+		q.limit = n
+		expr = expr[:len(expr)-len(matches[0])]
+	}
+
+	// Match SELECT ... FROM s3object ...
+	matches := sqlSelectRe.FindStringSubmatch(expr)
+	if len(matches) < 3 {
+		return nil, fmt.Errorf("expected SELECT ... FROM s3object")
+	}
+
+	// Parse columns
+	colsPart := strings.TrimSpace(matches[1])
+	if colsPart == "*" {
+		q.columns = []string{"*"}
+	} else {
+		cols := strings.Split(colsPart, ",")
+		for _, c := range cols {
+			c = strings.TrimSpace(c)
+			// Strip s3object. or s. prefix
+			c = stripS3Prefix(c)
+			if c != "" {
+				q.columns = append(q.columns, c)
+			}
+		}
+	}
+
+	// Parse WHERE clause
+	rest := strings.TrimSpace(matches[2])
+	if rest != "" {
+		wm := whereRe.FindStringSubmatch(rest)
+		if len(wm) < 2 {
+			return nil, fmt.Errorf("unexpected clause: %s", rest)
+		}
+		conds, err := parseConditions(wm[1])
+		if err != nil {
+			return nil, err
+		}
+		q.conditions = conds
+	}
+
+	return q, nil
+}
+
+func stripS3Prefix(col string) string {
+	prefixes := []string{"s3object.", "s.", "s3object[", "s["}
+	lower := strings.ToLower(col)
+	for _, p := range prefixes {
+		if strings.HasPrefix(lower, p) {
+			col = col[len(p):]
+			// Handle bracket notation: s3object['name'] or s3object["name"]
+			col = strings.Trim(col, "[]'\"")
+			return col
+		}
+	}
+	return col
+}
+
+var condRe = regexp.MustCompile(`(?i)^(.+?)\s+(=|!=|<>|<=|>=|<|>|LIKE|NOT\s+LIKE|IS\s+NOT|IS)\s+(.+)$`)
+
+func parseConditions(expr string) ([]condition, error) {
+	var conditions []condition
+
+	// Split on AND/OR (simple split, no nested parens support)
+	parts := splitLogical(expr)
+
+	for _, part := range parts {
+		p := strings.TrimSpace(part.expr)
+		if p == "" {
+			continue
+		}
+
+		m := condRe.FindStringSubmatch(p)
+		if len(m) < 4 {
+			return nil, fmt.Errorf("cannot parse condition: %s", p)
+		}
+
+		col := strings.TrimSpace(m[1])
+		col = stripS3Prefix(col)
+		op := strings.ToUpper(strings.TrimSpace(m[2]))
+		val := strings.TrimSpace(m[3])
+
+		c := condition{
+			column: col,
+			op:     op,
+			logic:  part.logic,
+		}
+
+		if op == "IS NOT" {
+			if strings.ToUpper(val) == "NULL" {
+				c.notNull = true
+			}
+		} else if op == "IS" {
+			if strings.ToUpper(val) == "NULL" {
+				c.isNull = true
+			}
+		} else {
+			// Strip quotes from value
+			val = strings.Trim(val, "'\"")
+			c.value = val
+		}
+
+		conditions = append(conditions, c)
+	}
+
+	return conditions, nil
+}
+
+type logicalPart struct {
+	expr  string
+	logic string // "", "AND", "OR"
+}
+
+func splitLogical(expr string) []logicalPart {
+	var parts []logicalPart
+	upper := strings.ToUpper(expr)
+
+	// Simple split on AND/OR boundaries
+	var current strings.Builder
+	words := tokenize(expr)
+	logic := ""
+
+	for i := 0; i < len(words); i++ {
+		w := strings.ToUpper(words[i])
+		if w == "AND" || w == "OR" {
+			if current.Len() > 0 {
+				parts = append(parts, logicalPart{expr: strings.TrimSpace(current.String()), logic: logic})
+				current.Reset()
+			}
+			logic = w
+			continue
+		}
+		_ = upper // suppress unused
+		if current.Len() > 0 {
+			current.WriteByte(' ')
+		}
+		current.WriteString(words[i])
+	}
+	if current.Len() > 0 {
+		parts = append(parts, logicalPart{expr: strings.TrimSpace(current.String()), logic: logic})
+	}
+
+	return parts
+}
+
+func tokenize(expr string) []string {
+	var tokens []string
+	var current strings.Builder
+	inQuote := byte(0)
+
+	for i := 0; i < len(expr); i++ {
+		ch := expr[i]
+		if inQuote != 0 {
+			current.WriteByte(ch)
+			if ch == inQuote {
+				inQuote = 0
+			}
+			continue
+		}
+		if ch == '\'' || ch == '"' {
+			current.WriteByte(ch)
+			inQuote = ch
+			continue
+		}
+		if ch == ' ' || ch == '\t' || ch == '\n' {
+			if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+			continue
+		}
+		current.WriteByte(ch)
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+	return tokens
+}
+
+// Input parsers
+
+func parseCSVInput(reader io.Reader, cfg *csvInput) ([]map[string]string, error) {
+	cr := csv.NewReader(reader)
+	if cfg.FieldDelimiter != "" {
+		cr.Comma = rune(cfg.FieldDelimiter[0])
+	}
+	cr.LazyQuotes = true
+	cr.FieldsPerRecord = -1
+
+	allRows, err := cr.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(allRows) == 0 {
+		return nil, nil
+	}
+
+	// Determine headers
+	var headers []string
+	startRow := 0
+	headerInfo := strings.ToUpper(cfg.FileHeaderInfo)
+	if headerInfo == "" {
+		headerInfo = "NONE"
+	}
+
+	switch headerInfo {
+	case "USE":
+		headers = allRows[0]
+		startRow = 1
+	case "IGNORE":
+		startRow = 1
+		for i := range allRows[0] {
+			headers = append(headers, fmt.Sprintf("_%d", i+1))
+		}
+	default: // NONE
+		if len(allRows) > 0 {
+			for i := range allRows[0] {
+				headers = append(headers, fmt.Sprintf("_%d", i+1))
+			}
+		}
+	}
+
+	var records []map[string]string
+	for _, row := range allRows[startRow:] {
+		rec := make(map[string]string)
+		for i, val := range row {
+			if i < len(headers) {
+				rec[headers[i]] = val
+			}
+		}
+		records = append(records, rec)
+	}
+
+	return records, nil
+}
+
+func parseJSONInput(reader io.Reader, cfg *jsonInput) ([]map[string]string, error) {
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	jsonType := strings.ToUpper(cfg.Type)
+	if jsonType == "" {
+		jsonType = "LINES"
+	}
+
+	var rawRecords []map[string]interface{}
+
+	switch jsonType {
+	case "DOCUMENT":
+		// Try array first
+		if err := json.Unmarshal(data, &rawRecords); err != nil {
+			// Try single object
+			var single map[string]interface{}
+			if err2 := json.Unmarshal(data, &single); err2 != nil {
+				return nil, fmt.Errorf("cannot parse JSON document: %v", err)
+			}
+			rawRecords = []map[string]interface{}{single}
+		}
+	default: // LINES
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			var rec map[string]interface{}
+			if err := json.Unmarshal([]byte(line), &rec); err != nil {
+				return nil, fmt.Errorf("cannot parse JSON line: %v", err)
+			}
+			rawRecords = append(rawRecords, rec)
+		}
+	}
+
+	// Convert to map[string]string
+	var records []map[string]string
+	for _, raw := range rawRecords {
+		rec := make(map[string]string)
+		for k, v := range raw {
+			rec[k] = fmt.Sprintf("%v", v)
+		}
+		records = append(records, rec)
+	}
+
+	return records, nil
+}
+
+// Query execution
+
+func executeQuery(q *selectQuery, records []map[string]string) []map[string]string {
+	var results []map[string]string
+
+	for _, rec := range records {
+		if !matchesConditions(rec, q.conditions) {
+			continue
+		}
+
+		// Project columns
+		if len(q.columns) == 1 && q.columns[0] == "*" {
+			results = append(results, rec)
+		} else {
+			projected := make(map[string]string)
+			for _, col := range q.columns {
+				projected[col] = rec[col]
+			}
+			results = append(results, projected)
+		}
+
+		if q.limit > 0 && len(results) >= q.limit {
+			break
+		}
+	}
+
+	return results
+}
+
+func matchesConditions(rec map[string]string, conditions []condition) bool {
+	if len(conditions) == 0 {
+		return true
+	}
+
+	result := evaluateCondition(rec, conditions[0])
+
+	for i := 1; i < len(conditions); i++ {
+		c := conditions[i]
+		val := evaluateCondition(rec, c)
+
+		switch c.logic {
+		case "OR":
+			result = result || val
+		default: // AND
+			result = result && val
+		}
+	}
+
+	return result
+}
+
+func evaluateCondition(rec map[string]string, c condition) bool {
+	val, exists := rec[c.column]
+
+	if c.isNull {
+		return !exists || val == ""
+	}
+	if c.notNull {
+		return exists && val != ""
+	}
+
+	switch c.op {
+	case "=":
+		return val == c.value
+	case "!=", "<>":
+		return val != c.value
+	case "<":
+		return compareValues(val, c.value) < 0
+	case ">":
+		return compareValues(val, c.value) > 0
+	case "<=":
+		return compareValues(val, c.value) <= 0
+	case ">=":
+		return compareValues(val, c.value) >= 0
+	case "LIKE":
+		return matchLike(val, c.value)
+	case "NOT LIKE":
+		return !matchLike(val, c.value)
+	}
+
+	return false
+}
+
+func compareValues(a, b string) int {
+	// Try numeric comparison first
+	af, errA := strconv.ParseFloat(a, 64)
+	bf, errB := strconv.ParseFloat(b, 64)
+	if errA == nil && errB == nil {
+		if af < bf {
+			return -1
+		}
+		if af > bf {
+			return 1
+		}
+		return 0
+	}
+	return strings.Compare(a, b)
+}
+
+func matchLike(val, pattern string) bool {
+	// Convert SQL LIKE pattern to regex
+	// % = .*, _ = .
+	regexPattern := "^"
+	for _, ch := range pattern {
+		switch ch {
+		case '%':
+			regexPattern += ".*"
+		case '_':
+			regexPattern += "."
+		case '.', '(', ')', '[', ']', '{', '}', '+', '?', '^', '$', '|', '\\':
+			regexPattern += "\\" + string(ch)
+		default:
+			regexPattern += string(ch)
+		}
+	}
+	regexPattern += "$"
+
+	matched, _ := regexp.MatchString("(?i)"+regexPattern, val)
+	return matched
+}
+
+func sortStrings(s []string) {
+	for i := 0; i < len(s); i++ {
+		for j := i + 1; j < len(s); j++ {
+			if s[j] < s[i] {
+				s[i], s[j] = s[j], s[i]
+			}
+		}
+	}
+}

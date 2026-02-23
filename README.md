@@ -13,6 +13,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Bucket policies** — Public-read, private, custom S3-compatible JSON policies
 - **Quota management** — Per-bucket size and object count limits
 - **Rate limiting** — Token bucket rate limiter per client IP and per access key to prevent abuse
+- **S3 Select** — Execute SQL queries on CSV and JSON objects without downloading the full file
 - **Multipart upload** — Full lifecycle (Create, UploadPart, UploadPartCopy, Complete, Abort)
 - **Multiple access keys** — Dynamic key management via BoltDB
 - **Object tagging** — Up to 10 tags per object
@@ -67,6 +68,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Batch Delete | `POST /{bucket}?delete` | Done |
 | Multipart Upload | `POST/PUT/DELETE /{bucket}/{key}?uploads&uploadId` | Done |
 | UploadPartCopy | `PUT /{bucket}/{key}?partNumber&uploadId` + `x-amz-copy-source` | Done |
+| S3 Select | `POST /{bucket}/{key}?select&select-type=2` | Done |
 | Object Tagging | `PUT/GET/DELETE /{bucket}/{key}?tagging` | Done |
 | Bucket Policy | `PUT/GET/DELETE /{bucket}?policy` | Done |
 | Bucket Quota | `PUT/GET /{bucket}?quota` | Done |
@@ -750,6 +752,46 @@ fusermount -u /mnt/vaults3
 
 FUSE mount uses range requests for lazy loading — only the requested bytes are fetched from the server. Write support buffers data and uploads on file close.
 
+### S3 Select (SQL on Objects)
+
+Execute SQL queries on CSV and JSON objects without downloading the full file:
+
+```python
+from botocore.auth import SigV4Auth
+from botocore.credentials import Credentials
+from botocore.awsrequest import AWSRequest
+import requests
+
+# Query a CSV file
+url = "http://localhost:9000/my-bucket/data.csv?select&select-type=2"
+body = b"""<?xml version="1.0"?>
+<SelectObjectContentRequest>
+    <Expression>SELECT name, age FROM s3object WHERE city = 'New York' AND age > '25'</Expression>
+    <ExpressionType>SQL</ExpressionType>
+    <InputSerialization><CSV><FileHeaderInfo>USE</FileHeaderInfo></CSV></InputSerialization>
+    <OutputSerialization><JSON/></OutputSerialization>
+</SelectObjectContentRequest>"""
+
+creds = Credentials("vaults3-admin", "vaults3-secret-change-me")
+req = AWSRequest(method="POST", url=url, data=body, headers={"Content-Type": "application/xml"})
+SigV4Auth(creds, "s3", "us-east-1").add_auth(req)
+r = requests.post(url, headers=dict(req.headers), data=body)
+# Returns JSON lines: {"name":"Alice","age":"30"}\n{"name":"Charlie","age":"35"}
+```
+
+Supported SQL features:
+- `SELECT *` or `SELECT col1, col2` (column projection)
+- `FROM s3object` (required table name)
+- `WHERE col = 'value'`, `!=`, `<`, `>`, `<=`, `>=` (comparisons, numeric-aware)
+- `AND` / `OR` (logical operators)
+- `LIKE 'pattern%'` (SQL wildcards: `%` = any chars, `_` = single char)
+- `IS NULL` / `IS NOT NULL`
+- `LIMIT N`
+- Column references: `name`, `s3object.name`, `s.name`, `_1` (positional for CSV without headers)
+
+Input formats: CSV (with/without headers, custom delimiters), JSON Lines, JSON Document (array).
+Output formats: JSON (one object per line) or CSV.
+
 ### Rate Limiting
 
 Protect against abuse and DDoS with token bucket rate limiting:
@@ -872,3 +914,4 @@ VaultS3/
 - [x] FUSE mount (mount buckets as local filesystem, read/write, lazy loading via range requests)
 - [x] Rate limiting (token bucket per IP and per access key, 429 responses, auto-cleanup)
 - [x] UploadPartCopy (copy byte ranges from existing objects as multipart parts)
+- [x] S3 Select (SQL queries on CSV and JSON objects, SELECT/WHERE/LIMIT/LIKE/AND/OR)

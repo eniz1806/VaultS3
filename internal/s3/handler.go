@@ -430,6 +430,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// S3 Select
+		if _, ok := q["select"]; ok {
+			if r.Method == http.MethodPost {
+				h.objects.SelectObjectContent(w, r, bucket, key)
+				return
+			}
+		}
+
 		// Check for multipart upload operations
 		if _, ok := q["uploads"]; ok {
 			// POST /{bucket}/{key}?uploads = CreateMultipartUpload
