@@ -21,3 +21,4 @@ Thumbs.db
 # Web dashboard build
 web/dist/
 web/node_modules/
+internal/dashboard/dist/

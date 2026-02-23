@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/eniz1806/VaultS3/internal/api"
 	"github.com/eniz1806/VaultS3/internal/config"
+	"github.com/eniz1806/VaultS3/internal/dashboard"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
 	"github.com/eniz1806/VaultS3/internal/s3"
@@ -76,7 +78,12 @@ func New(cfg *config.Config) (*Server, error) {
 func (s *Server) Start() error {
 	addr := s.cfg.ListenAddr()
 
+	// Dashboard API
+	apiHandler := api.NewAPIHandler(s.store, s.engine, s.metrics, s.cfg)
+
 	mux := http.NewServeMux()
+	mux.Handle("/api/v1/", apiHandler)
+	mux.Handle("/dashboard/", dashboard.Handler())
 	mux.Handle("/metrics", s.metrics)
 	mux.Handle("/", s.s3h)
 
@@ -84,6 +91,7 @@ func (s *Server) Start() error {
 	log.Printf("  Data dir:     %s", s.cfg.Storage.DataDir)
 	log.Printf("  Metadata dir: %s", s.cfg.Storage.MetadataDir)
 	log.Printf("  Access key:   %s", s.cfg.Auth.AdminAccessKey)
+	log.Printf("  Dashboard:    http://%s/dashboard/", addr)
 	if s.cfg.Encryption.Enabled {
 		log.Printf("  Encryption:   AES-256-GCM")
 	}

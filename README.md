@@ -1,6 +1,6 @@
 # VaultS3
 
-Lightweight, S3-compatible object storage server. Single binary, low memory, zero external dependencies.
+Lightweight, S3-compatible object storage server with built-in web dashboard. Single binary, low memory, zero external dependencies.
 
 ## Features
 
@@ -21,6 +21,7 @@ Lightweight, S3-compatible object storage server. Single binary, low memory, zer
 - **Virtual-hosted style URLs** — `bucket.domain/key` in addition to path-style
 - **Prometheus metrics** — `/metrics` endpoint with storage, request, and runtime stats
 - **Presigned URLs** — Pre-authenticated URL generation
+- **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, bucket management
 - **YAML config** — Simple configuration, sensible defaults
 
 ## Supported S3 Operations
@@ -116,6 +117,16 @@ curl http://localhost:9000/metrics
 
 Exposes: request counts by method, bytes in/out, per-bucket storage size and object counts, quota usage, Go runtime stats (goroutines, memory, GC).
 
+### Web Dashboard
+
+The built-in dashboard is available at `http://localhost:9000/dashboard/`. Login with your admin credentials. Features:
+
+- Bucket browser — list, create, delete buckets
+- Bucket detail — view/edit policies and quotas
+- JWT-based authentication (24h tokens)
+
+The dashboard is embedded into the binary — no separate web server needed.
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -137,7 +148,10 @@ VaultS3/
 │   ├── s3/                    — S3 API handlers (auth, buckets, objects, multipart)
 │   ├── storage/               — Storage engine interface + filesystem + encryption
 │   ├── metadata/              — BoltDB metadata store
-│   └── metrics/               — Prometheus-compatible metrics collector
+│   ├── metrics/               — Prometheus-compatible metrics collector
+│   ├── api/                   — Dashboard REST API (JWT auth)
+│   └── dashboard/             — Embedded React SPA
+├── web/                       — React dashboard source (Vite + Tailwind)
 ├── configs/vaults3.yaml       — Default configuration
 ├── Makefile                   — Build commands
 └── README.md
@@ -146,13 +160,16 @@ VaultS3/
 ## Tech Stack
 
 - **Go** — net/http (no frameworks)
+- **React 19** — Dashboard UI (embedded via `//go:embed`)
+- **Tailwind CSS** — Dashboard styling
 - **BoltDB** — Embedded key-value store for metadata
 - **Local filesystem** — Object storage backend
 - **AES-256-GCM** — Server-side encryption (optional)
 
 ## Requirements
 
-- Go 1.21+ (build only)
+- Go 1.21+ (build)
+- Node.js 18+ (dashboard build only)
 - No runtime dependencies
 
 ## Roadmap
@@ -172,7 +189,7 @@ VaultS3/
 - [x] Quota management (per-bucket)
 - [x] Virtual-hosted style URLs
 - [x] Prometheus-compatible metrics
-- [ ] Web dashboard with built-in UI
+- [x] Web dashboard with built-in UI (login, bucket browser, policy/quota editors)
 - [ ] Object versioning
 - [ ] Object locking (WORM)
 - [ ] Lifecycle rules
