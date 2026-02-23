@@ -406,6 +406,54 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Bucket location
+		if _, ok := bq["location"]; ok {
+			if r.Method == http.MethodGet {
+				h.buckets.GetBucketLocation(w, r, bucket)
+			} else {
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Bucket tagging
+		if _, ok := bq["tagging"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketTagging(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketTagging(w, r, bucket)
+			case http.MethodDelete:
+				h.buckets.DeleteBucketTagging(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Bucket ACL
+		if _, ok := bq["acl"]; ok {
+			switch r.Method {
+			case http.MethodGet:
+				h.buckets.GetBucketACL(w, r, bucket)
+			case http.MethodPut:
+				h.buckets.PutBucketACL(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// List multipart uploads
+		if _, ok := bq["uploads"]; ok {
+			if r.Method == http.MethodGet {
+				h.objects.ListMultipartUploads(w, r, bucket)
+			} else {
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
 		// Quota operations
 		if _, ok := bq["quota"]; ok {
 			switch r.Method {
@@ -468,6 +516,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Object ACL
+		if _, ok := q["acl"]; ok {
+			if r.Method == http.MethodGet {
+				h.objects.GetObjectACL(w, r, bucket, key)
+			} else {
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
 		// Check for tagging operations
 		if _, ok := q["tagging"]; ok {
 			switch r.Method {
@@ -501,6 +559,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if uploadID := q.Get("uploadId"); uploadID != "" {
 			switch r.Method {
+			case http.MethodGet:
+				h.objects.ListParts(w, r, bucket, key, uploadID)
 			case http.MethodPut:
 				if r.Header.Get("X-Amz-Copy-Source") != "" {
 					h.objects.UploadPartCopy(w, r, bucket, key, uploadID)

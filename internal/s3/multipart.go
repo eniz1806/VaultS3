@@ -369,3 +369,82 @@ func generateUploadID() string {
 	rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// ListMultipartUploads handles GET /{bucket}?uploads.
+func (h *ObjectHandler) ListMultipartUploads(w http.ResponseWriter, r *http.Request, bucket string) {
+	uploads, err := h.store.ListMultipartUploads(bucket)
+	if err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type xmlUpload struct {
+		Key       string `xml:"Key"`
+		UploadID  string `xml:"UploadId"`
+		Initiated string `xml:"Initiated"`
+	}
+	type xmlResult struct {
+		XMLName xml.Name    `xml:"ListMultipartUploadsResult"`
+		Xmlns   string      `xml:"xmlns,attr"`
+		Bucket  string      `xml:"Bucket"`
+		Uploads []xmlUpload `xml:"Upload"`
+	}
+	resp := xmlResult{
+		Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
+		Bucket: bucket,
+	}
+	for _, u := range uploads {
+		resp.Uploads = append(resp.Uploads, xmlUpload{
+			Key:       u.Key,
+			UploadID:  u.UploadID,
+			Initiated: time.Unix(u.CreatedAt, 0).UTC().Format(time.RFC3339),
+		})
+	}
+	writeXML(w, http.StatusOK, resp)
+}
+
+// ListParts handles GET /{bucket}/{key}?uploadId=X.
+func (h *ObjectHandler) ListParts(w http.ResponseWriter, r *http.Request, bucket, key, uploadID string) {
+	_, err := h.store.GetMultipartUpload(uploadID)
+	if err != nil {
+		writeS3Error(w, "NoSuchUpload", "Upload not found", http.StatusNotFound)
+		return
+	}
+
+	parts, err := h.store.ListParts(uploadID)
+	if err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type xmlPart struct {
+		PartNumber   int    `xml:"PartNumber"`
+		Size         int64  `xml:"Size"`
+		ETag         string `xml:"ETag"`
+		LastModified string `xml:"LastModified"`
+	}
+	type xmlResult struct {
+		XMLName  xml.Name  `xml:"ListPartsResult"`
+		Xmlns    string    `xml:"xmlns,attr"`
+		Bucket   string    `xml:"Bucket"`
+		Key      string    `xml:"Key"`
+		UploadID string    `xml:"UploadId"`
+		Parts    []xmlPart `xml:"Part"`
+	}
+	resp := xmlResult{
+		Xmlns:    "http://s3.amazonaws.com/doc/2006-03-01/",
+		Bucket:   bucket,
+		Key:      key,
+		UploadID: uploadID,
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, p := range parts {
+		resp.Parts = append(resp.Parts, xmlPart{
+			PartNumber:   p.PartNumber,
+			Size:         p.Size,
+			ETag:         p.ETag,
+			LastModified: now,
+		})
+	}
+	writeXML(w, http.StatusOK, resp)
+}

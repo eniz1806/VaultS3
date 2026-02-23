@@ -767,3 +767,132 @@ func (h *BucketHandler) DeleteBucketLambda(w http.ResponseWriter, r *http.Reques
 	h.store.DeleteLambdaConfig(bucket)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// GetBucketLocation handles GET /{bucket}?location.
+func (h *BucketHandler) GetBucketLocation(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	type locationResult struct {
+		XMLName  xml.Name `xml:"LocationConstraint"`
+		Xmlns    string   `xml:"xmlns,attr"`
+		Location string   `xml:",chardata"`
+	}
+	writeXML(w, http.StatusOK, locationResult{
+		Xmlns:    "http://s3.amazonaws.com/doc/2006-03-01/",
+		Location: "us-east-1",
+	})
+}
+
+// PutBucketTagging handles PUT /{bucket}?tagging.
+func (h *BucketHandler) PutBucketTagging(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	if err != nil {
+		writeS3Error(w, "MalformedXML", "Could not read request body", http.StatusBadRequest)
+		return
+	}
+	var req taggingRequest
+	if err := xml.Unmarshal(body, &req); err != nil {
+		writeS3Error(w, "MalformedXML", "Invalid tagging XML", http.StatusBadRequest)
+		return
+	}
+	tags := make(map[string]string)
+	for _, t := range req.TagSet.Tags {
+		tags[t.Key] = t.Value
+	}
+	if err := h.store.PutBucketTags(bucket, tags); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetBucketTagging handles GET /{bucket}?tagging.
+func (h *BucketHandler) GetBucketTagging(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	tags, err := h.store.GetBucketTags(bucket)
+	if err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	resp := taggingResponse{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+	}
+	for k, v := range tags {
+		resp.TagSet.Tags = append(resp.TagSet.Tags, xmlTag{Key: k, Value: v})
+	}
+	writeXML(w, http.StatusOK, resp)
+}
+
+// DeleteBucketTagging handles DELETE /{bucket}?tagging.
+func (h *BucketHandler) DeleteBucketTagging(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	if err := h.store.DeleteBucketTags(bucket); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetBucketACL handles GET /{bucket}?acl.
+func (h *BucketHandler) GetBucketACL(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	type grantee struct {
+		XMLName     xml.Name `xml:"Grantee"`
+		XMLNS       string   `xml:"xmlns:xsi,attr"`
+		Type        string   `xml:"xsi:type,attr"`
+		ID          string   `xml:"ID"`
+		DisplayName string   `xml:"DisplayName"`
+	}
+	type grant struct {
+		Grantee    grantee `xml:"Grantee"`
+		Permission string  `xml:"Permission"`
+	}
+	type aclResult struct {
+		XMLName xml.Name `xml:"AccessControlPolicy"`
+		Xmlns   string   `xml:"xmlns,attr"`
+		Owner   xmlOwner `xml:"Owner"`
+		ACL     []grant  `xml:"AccessControlList>Grant"`
+	}
+	resp := aclResult{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		Owner: xmlOwner{ID: "vaults3", DisplayName: "VaultS3"},
+		ACL: []grant{{
+			Grantee:    grantee{XMLNS: "http://www.w3.org/2001/XMLSchema-instance", Type: "CanonicalUser", ID: "vaults3", DisplayName: "VaultS3"},
+			Permission: "FULL_CONTROL",
+		}},
+	}
+	// Add public read grant if bucket is public
+	if h.store.IsBucketPublicRead(bucket) {
+		resp.ACL = append(resp.ACL, grant{
+			Grantee:    grantee{XMLNS: "http://www.w3.org/2001/XMLSchema-instance", Type: "Group", ID: "http://acs.amazonaws.com/groups/global/AllUsers"},
+			Permission: "READ",
+		})
+	}
+	writeXML(w, http.StatusOK, resp)
+}
+
+// PutBucketACL handles PUT /{bucket}?acl — accepts but is a no-op (VaultS3 uses policies).
+func (h *BucketHandler) PutBucketACL(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	// Consume and discard the body
+	io.Copy(io.Discard, r.Body)
+	w.WriteHeader(http.StatusOK)
+}

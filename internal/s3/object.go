@@ -922,3 +922,41 @@ func (h *ObjectHandler) ListObjects(w http.ResponseWriter, r *http.Request, buck
 
 	writeXML(w, http.StatusOK, resp)
 }
+
+// GetObjectACL handles GET /{bucket}/{key}?acl — returns default private ACL.
+func (h *ObjectHandler) GetObjectACL(w http.ResponseWriter, r *http.Request, bucket, key string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	_, err := h.store.GetObjectMeta(bucket, key)
+	if err != nil {
+		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+		return
+	}
+	type grantee struct {
+		XMLName     xml.Name `xml:"Grantee"`
+		XMLNS       string   `xml:"xmlns:xsi,attr"`
+		Type        string   `xml:"xsi:type,attr"`
+		ID          string   `xml:"ID"`
+		DisplayName string   `xml:"DisplayName"`
+	}
+	type grant struct {
+		Grantee    grantee `xml:"Grantee"`
+		Permission string  `xml:"Permission"`
+	}
+	type aclResult struct {
+		XMLName xml.Name `xml:"AccessControlPolicy"`
+		Xmlns   string   `xml:"xmlns,attr"`
+		Owner   xmlOwner `xml:"Owner"`
+		ACL     []grant  `xml:"AccessControlList>Grant"`
+	}
+	writeXML(w, http.StatusOK, aclResult{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		Owner: xmlOwner{ID: "vaults3", DisplayName: "VaultS3"},
+		ACL: []grant{{
+			Grantee:    grantee{XMLNS: "http://www.w3.org/2001/XMLSchema-instance", Type: "CanonicalUser", ID: "vaults3", DisplayName: "VaultS3"},
+			Permission: "FULL_CONTROL",
+		}},
+	})
+}

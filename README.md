@@ -14,7 +14,9 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Quota management** — Per-bucket size and object count limits
 - **Rate limiting** — Token bucket rate limiter per client IP and per access key to prevent abuse
 - **S3 Select** — Execute SQL queries on CSV and JSON objects without downloading the full file
-- **Multipart upload** — Full lifecycle (Create, UploadPart, UploadPartCopy, Complete, Abort)
+- **Multipart upload** — Full lifecycle (Create, UploadPart, UploadPartCopy, Complete, Abort, ListUploads, ListParts)
+- **Bucket tagging** — S3-compatible tag sets with PUT/GET/DELETE
+- **Bucket/Object ACL** — S3-compatible ACL responses (GET/PUT)
 - **Multiple access keys** — Dynamic key management via BoltDB
 - **Object tagging** — Up to 10 tags per object
 - **Range requests** — Partial content downloads (206 responses)
@@ -86,6 +88,12 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Website Hosting | `PUT/GET/DELETE /{bucket}?website` | Done |
 | Bucket CORS | `PUT/GET/DELETE /{bucket}?cors` | Done |
 | Presigned URLs | — | Done |
+| Get Bucket Location | `GET /{bucket}?location` | Done |
+| Bucket Tagging | `PUT/GET/DELETE /{bucket}?tagging` | Done |
+| Bucket ACL | `GET/PUT /{bucket}?acl` | Done |
+| Object ACL | `GET /{bucket}/{key}?acl` | Done |
+| List Multipart Uploads | `GET /{bucket}?uploads` | Done |
+| List Parts | `GET /{bucket}/{key}?uploadId=X` | Done |
 | Metrics | `GET /metrics` | Done |
 | IAM (Users/Groups/Policies) | Dashboard API `/api/v1/iam/*` | Done |
 | STS Temporary Credentials | `POST /api/v1/sts/session-token` | Done |
@@ -1005,3 +1013,4 @@ VaultS3/
 - [x] FUSE read cache (LRU block cache, metadata TTL cache, kernel attribute caching, SigV4 key caching)
 - [x] RAM optimization (slim search index with LRU cap, batched last-access writes, GOMEMLIMIT support)
 - [x] Dashboard advanced pages (IAM users/groups/policies, audit trail, search, notifications, replication, lambda triggers, backups — 7 new pages with full CRUD)
+- [x] GetBucketLocation, Bucket Tagging, Bucket/Object ACL, ListMultipartUploads, ListParts (6 new S3 operations for AWS CLI/SDK compatibility)
