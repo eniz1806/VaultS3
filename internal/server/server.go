@@ -38,7 +38,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize S3 authenticator
-	auth := s3.NewAuthenticator(cfg.Auth.AdminAccessKey, cfg.Auth.AdminSecretKey)
+	auth := s3.NewAuthenticator(cfg.Auth.AdminAccessKey, cfg.Auth.AdminSecretKey, store)
 
 	// Initialize S3 handler
 	s3h := s3.NewHandler(store, engine, auth)

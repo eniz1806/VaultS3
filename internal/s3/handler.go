@@ -75,9 +75,50 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		// Object-level operations
+		q := r.URL.Query()
+
+		// Check for tagging operations
+		if _, ok := q["tagging"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.objects.PutObjectTagging(w, r, bucket, key)
+			case http.MethodGet:
+				h.objects.GetObjectTagging(w, r, bucket, key)
+			case http.MethodDelete:
+				h.objects.DeleteObjectTagging(w, r, bucket, key)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Check for multipart upload operations
+		if _, ok := q["uploads"]; ok {
+			// POST /{bucket}/{key}?uploads = CreateMultipartUpload
+			if r.Method == http.MethodPost {
+				h.objects.CreateMultipartUpload(w, r, bucket, key)
+				return
+			}
+		}
+		if uploadID := q.Get("uploadId"); uploadID != "" {
+			switch r.Method {
+			case http.MethodPut:
+				// PUT /{bucket}/{key}?partNumber=N&uploadId=X = UploadPart
+				h.objects.UploadPart(w, r, bucket, key, uploadID)
+			case http.MethodPost:
+				// POST /{bucket}/{key}?uploadId=X = CompleteMultipartUpload
+				h.objects.CompleteMultipartUpload(w, r, bucket, key, uploadID)
+			case http.MethodDelete:
+				// DELETE /{bucket}/{key}?uploadId=X = AbortMultipartUpload
+				h.objects.AbortMultipartUpload(w, r, bucket, key, uploadID)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
 		switch r.Method {
 		case http.MethodPut:
-			// Check for copy operation
 			if r.Header.Get("X-Amz-Copy-Source") != "" {
 				h.objects.CopyObject(w, r, bucket, key)
 			} else {

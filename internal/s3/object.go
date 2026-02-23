@@ -310,6 +310,99 @@ func (h *ObjectHandler) BatchDelete(w http.ResponseWriter, r *http.Request, buck
 	writeXML(w, http.StatusOK, result)
 }
 
+// PutObjectTagging handles PUT /{bucket}/{key}?tagging.
+func (h *ObjectHandler) PutObjectTagging(w http.ResponseWriter, r *http.Request, bucket, key string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	if !h.engine.ObjectExists(bucket, key) {
+		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+		return
+	}
+
+	var req taggingRequest
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedXML", "Could not parse tagging XML", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.TagSet.Tags) > 10 {
+		writeS3Error(w, "BadRequest", "Object tags cannot be greater than 10", http.StatusBadRequest)
+		return
+	}
+
+	meta, err := h.store.GetObjectMeta(bucket, key)
+	if err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	meta.Tags = make(map[string]string, len(req.TagSet.Tags))
+	for _, tag := range req.TagSet.Tags {
+		meta.Tags[tag.Key] = tag.Value
+	}
+
+	if err := h.store.PutObjectMeta(*meta); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetObjectTagging handles GET /{bucket}/{key}?tagging.
+func (h *ObjectHandler) GetObjectTagging(w http.ResponseWriter, r *http.Request, bucket, key string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	if !h.engine.ObjectExists(bucket, key) {
+		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+		return
+	}
+
+	meta, err := h.store.GetObjectMeta(bucket, key)
+	if err != nil {
+		// No metadata yet — return empty tag set
+		writeXML(w, http.StatusOK, taggingResponse{
+			Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		})
+		return
+	}
+
+	resp := taggingResponse{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+	}
+	for k, v := range meta.Tags {
+		resp.TagSet.Tags = append(resp.TagSet.Tags, xmlTag{Key: k, Value: v})
+	}
+
+	writeXML(w, http.StatusOK, resp)
+}
+
+// DeleteObjectTagging handles DELETE /{bucket}/{key}?tagging.
+func (h *ObjectHandler) DeleteObjectTagging(w http.ResponseWriter, r *http.Request, bucket, key string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	if !h.engine.ObjectExists(bucket, key) {
+		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+		return
+	}
+
+	meta, err := h.store.GetObjectMeta(bucket, key)
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	meta.Tags = nil
+	h.store.PutObjectMeta(*meta)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ListObjects handles GET /{bucket}?list-type=2.
 func (h *ObjectHandler) ListObjects(w http.ResponseWriter, r *http.Request, bucket string) {
 	if !h.store.BucketExists(bucket) {

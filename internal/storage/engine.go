@@ -26,6 +26,10 @@ type Engine interface {
 
 	// Stats
 	BucketSize(bucket string) (int64, int64, error) // totalSize, objectCount, error
+
+	// Paths (for multipart upload temp storage)
+	DataDir() string
+	ObjectPath(bucket, key string) string
 }
 
 // ObjectInfo represents metadata about a stored object.

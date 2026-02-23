@@ -22,6 +22,14 @@ func NewFileSystem(dataDir string) (*FileSystem, error) {
 	return &FileSystem{dataDir: dataDir}, nil
 }
 
+func (fs *FileSystem) DataDir() string {
+	return fs.dataDir
+}
+
+func (fs *FileSystem) ObjectPath(bucket, key string) string {
+	return fs.objectPath(bucket, key)
+}
+
 func (fs *FileSystem) bucketPath(bucket string) string {
 	return filepath.Join(fs.dataDir, bucket)
 }

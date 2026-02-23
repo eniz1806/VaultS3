@@ -27,6 +27,28 @@ func writeXML(w http.ResponseWriter, status int, v interface{}) {
 	xml.NewEncoder(w).Encode(v)
 }
 
+// Object tagging XML types
+
+type taggingRequest struct {
+	XMLName xml.Name `xml:"Tagging"`
+	TagSet  tagSet   `xml:"TagSet"`
+}
+
+type tagSet struct {
+	Tags []xmlTag `xml:"Tag"`
+}
+
+type xmlTag struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
+type taggingResponse struct {
+	XMLName xml.Name `xml:"Tagging"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	TagSet  tagSet   `xml:"TagSet"`
+}
+
 // Batch delete XML types
 
 type deleteRequest struct {

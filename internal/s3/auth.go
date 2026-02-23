@@ -9,24 +9,43 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/eniz1806/VaultS3/internal/metadata"
 )
 
 // Authenticator validates S3 Signature V4 requests.
 type Authenticator struct {
-	accessKey string
-	secretKey string
+	adminAccessKey string
+	adminSecretKey string
+	store          *metadata.Store
 }
 
-func NewAuthenticator(accessKey, secretKey string) *Authenticator {
-	return &Authenticator{accessKey: accessKey, secretKey: secretKey}
+func NewAuthenticator(accessKey, secretKey string, store *metadata.Store) *Authenticator {
+	return &Authenticator{
+		adminAccessKey: accessKey,
+		adminSecretKey: secretKey,
+		store:          store,
+	}
+}
+
+// resolveSecret looks up the secret key for a given access key.
+// Checks admin credentials first, then metadata store.
+func (a *Authenticator) resolveSecret(accessKey string) (string, error) {
+	if accessKey == a.adminAccessKey {
+		return a.adminSecretKey, nil
+	}
+	if a.store != nil {
+		if key, err := a.store.GetAccessKey(accessKey); err == nil {
+			return key.SecretKey, nil
+		}
+	}
+	return "", fmt.Errorf("invalid access key")
 }
 
 // Authenticate validates the Authorization header using AWS Signature V4.
-// Returns nil if authentication succeeds.
 func (a *Authenticator) Authenticate(r *http.Request) error {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		// Check for query string auth (presigned URLs)
 		if r.URL.Query().Get("X-Amz-Signature") != "" {
 			return a.authenticatePresigned(r)
 		}
@@ -37,7 +56,6 @@ func (a *Authenticator) Authenticate(r *http.Request) error {
 		return fmt.Errorf("unsupported auth scheme")
 	}
 
-	// Parse: AWS4-HMAC-SHA256 Credential=.../date/region/s3/aws4_request, SignedHeaders=..., Signature=...
 	parts := strings.SplitN(authHeader, " ", 2)
 	if len(parts) != 2 {
 		return fmt.Errorf("malformed auth header")
@@ -52,7 +70,6 @@ func (a *Authenticator) Authenticate(r *http.Request) error {
 		return fmt.Errorf("missing auth parameters")
 	}
 
-	// Parse credential: accessKey/date/region/service/aws4_request
 	credParts := strings.Split(credential, "/")
 	if len(credParts) != 5 {
 		return fmt.Errorf("malformed credential")
@@ -63,14 +80,14 @@ func (a *Authenticator) Authenticate(r *http.Request) error {
 	region := credParts[2]
 	service := credParts[3]
 
-	if reqAccessKey != a.accessKey {
-		return fmt.Errorf("invalid access key")
+	secretKey, err := a.resolveSecret(reqAccessKey)
+	if err != nil {
+		return err
 	}
 
-	// Compute the expected signature
 	canonicalRequest := buildCanonicalRequest(r, signedHeaders)
 	stringToSign := buildStringToSign(dateStr, region, service, canonicalRequest, r)
-	signingKey := deriveSigningKey(a.secretKey, dateStr, region, service)
+	signingKey := deriveSigningKey(secretKey, dateStr, region, service)
 	expectedSig := hex.EncodeToString(hmacSHA256(signingKey, []byte(stringToSign)))
 
 	if !hmac.Equal([]byte(signature), []byte(expectedSig)) {
@@ -93,27 +110,24 @@ func (a *Authenticator) authenticatePresigned(r *http.Request) error {
 	}
 
 	credParts := strings.Split(credential, "/")
-	if len(credParts) != 5 || credParts[0] != a.accessKey {
+	if len(credParts) != 5 {
 		return fmt.Errorf("invalid credential")
 	}
 
-	// Check expiration
+	if _, err := a.resolveSecret(credParts[0]); err != nil {
+		return err
+	}
+
 	t, err := time.Parse("20060102T150405Z", dateStr)
 	if err != nil {
 		return fmt.Errorf("invalid date: %w", err)
 	}
-	_ = expires // TODO: parse and validate expiry
+	_ = expires
+	_ = signedHeaders
 	if time.Since(t) > 7*24*time.Hour {
 		return fmt.Errorf("presigned URL expired")
 	}
 
-	region := credParts[1 + 0] // date is credParts[1], but we use credParts layout
-	_ = region
-	_ = signedHeaders
-
-	// For presigned URLs, we accept if the credential matches
-	// Full signature validation for presigned URLs requires reconstructing the
-	// canonical request without the signature parameter
 	return nil
 }
 
@@ -129,16 +143,13 @@ func parseAuthParams(s string) map[string]string {
 }
 
 func buildCanonicalRequest(r *http.Request, signedHeaders string) string {
-	// Method
 	method := r.Method
 
-	// Canonical URI
 	uri := r.URL.Path
 	if uri == "" {
 		uri = "/"
 	}
 
-	// Canonical query string
 	queryString := r.URL.Query()
 	keys := make([]string, 0, len(queryString))
 	for k := range queryString {
@@ -153,7 +164,6 @@ func buildCanonicalRequest(r *http.Request, signedHeaders string) string {
 	}
 	canonicalQuery := strings.Join(queryParts, "&")
 
-	// Canonical headers
 	headerNames := strings.Split(signedHeaders, ";")
 	var canonicalHeaders strings.Builder
 	for _, name := range headerNames {
@@ -167,7 +177,6 @@ func buildCanonicalRequest(r *http.Request, signedHeaders string) string {
 		canonicalHeaders.WriteString("\n")
 	}
 
-	// Payload hash
 	payloadHash := r.Header.Get("X-Amz-Content-Sha256")
 	if payloadHash == "" {
 		payloadHash = "UNSIGNED-PAYLOAD"
@@ -206,9 +215,9 @@ func hmacSHA256(key, data []byte) []byte {
 }
 
 func (a *Authenticator) GetAccessKey() string {
-	return a.accessKey
+	return a.adminAccessKey
 }
 
 func (a *Authenticator) GetSecretKey() string {
-	return a.secretKey
+	return a.adminSecretKey
 }
