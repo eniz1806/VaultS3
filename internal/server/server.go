@@ -13,6 +13,7 @@ import (
 
 	"github.com/eniz1806/VaultS3/internal/accesslog"
 	"github.com/eniz1806/VaultS3/internal/api"
+	"github.com/eniz1806/VaultS3/internal/backup"
 	"github.com/eniz1806/VaultS3/internal/config"
 	"github.com/eniz1806/VaultS3/internal/dashboard"
 	"github.com/eniz1806/VaultS3/internal/lifecycle"
@@ -24,6 +25,7 @@ import (
 	"github.com/eniz1806/VaultS3/internal/scanner"
 	"github.com/eniz1806/VaultS3/internal/search"
 	"github.com/eniz1806/VaultS3/internal/storage"
+	"github.com/eniz1806/VaultS3/internal/tiering"
 )
 
 type Server struct {
@@ -38,6 +40,8 @@ type Server struct {
 	replWorker   *replication.Worker
 	searchIndex  *search.Index
 	scanWorker   *scanner.Scanner
+	tieringMgr   *tiering.Manager
+	backupSched  *backup.Scheduler
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -200,6 +204,25 @@ func New(cfg *config.Config) (*Server, error) {
 		})
 	}
 
+	// Initialize tiering if enabled
+	var tieringMgr *tiering.Manager
+	if cfg.Tiering.Enabled && cfg.Tiering.ColdDataDir != "" {
+		coldFS, err := storage.NewFileSystem(cfg.Tiering.ColdDataDir)
+		if err != nil {
+			store.Close()
+			return nil, fmt.Errorf("init cold storage: %w", err)
+		}
+		tieringMgr = tiering.NewManager(store, fs, coldFS, cfg.Tiering.MigrateAfterDays, cfg.Tiering.ScanIntervalSecs)
+		log.Printf("  Tiering:      enabled (cold=%s, migrate after %dd)", cfg.Tiering.ColdDataDir, cfg.Tiering.MigrateAfterDays)
+	}
+
+	// Initialize backup scheduler if enabled
+	var backupSched *backup.Scheduler
+	if cfg.Backup.Enabled && len(cfg.Backup.Targets) > 0 {
+		backupSched = backup.NewScheduler(store, engine, cfg.Backup)
+		log.Printf("  Backup:       enabled (%d targets, schedule=%s)", len(cfg.Backup.Targets), cfg.Backup.ScheduleCron)
+	}
+
 	// Initialize built-in IAM policies
 	initBuiltinPolicies(store)
 
@@ -215,6 +238,8 @@ func New(cfg *config.Config) (*Server, error) {
 		replWorker:  replWorker,
 		searchIndex: searchIdx,
 		scanWorker:  scanWorker,
+		tieringMgr:  tieringMgr,
+		backupSched: backupSched,
 	}, nil
 }
 
@@ -228,6 +253,12 @@ func (s *Server) Run() error {
 	apiHandler.SetSearchIndex(s.searchIndex)
 	if s.scanWorker != nil {
 		apiHandler.SetScanner(s.scanWorker)
+	}
+	if s.tieringMgr != nil {
+		apiHandler.SetTieringManager(s.tieringMgr)
+	}
+	if s.backupSched != nil {
+		apiHandler.SetBackupScheduler(s.backupSched)
 	}
 
 	mux := http.NewServeMux()
@@ -289,6 +320,20 @@ func (s *Server) Run() error {
 		scanCtx, scanCancel := context.WithCancel(context.Background())
 		defer scanCancel()
 		s.scanWorker.Start(scanCtx, s.cfg.Scanner.Workers)
+	}
+
+	// Start tiering manager if enabled
+	if s.tieringMgr != nil {
+		tierCtx, tierCancel := context.WithCancel(context.Background())
+		defer tierCancel()
+		go s.tieringMgr.Run(tierCtx)
+	}
+
+	// Start backup scheduler if enabled
+	if s.backupSched != nil {
+		backupCtx, backupCancel := context.WithCancel(context.Background())
+		defer backupCancel()
+		go s.backupSched.Run(backupCtx)
 	}
 
 	log.Printf("  Search:       %d objects indexed", s.searchIndex.Count())

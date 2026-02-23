@@ -57,3 +57,16 @@ scanner:
   fail_closed: false
   max_scan_size_bytes: 104857600  # 100MB
   workers: 2
+
+tiering:
+  enabled: false
+  cold_data_dir: "./cold_data"
+  migrate_after_days: 30
+  scan_interval_secs: 3600
+
+backup:
+  enabled: false
+  targets: []              # list of {name, type, path}
+  schedule_cron: "0 2 * * *"  # daily at 2am
+  retention_days: 30
+  incremental: false

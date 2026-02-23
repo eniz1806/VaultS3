@@ -239,6 +239,11 @@ func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket
 		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
 	}
 
+	// Track last access time for tiering
+	if meta != nil {
+		go h.store.UpdateLastAccess(bucket, key)
+	}
+
 	rangeHeader := r.Header.Get("Range")
 	if rangeHeader != "" {
 		h.serveRange(w, reader, size, rangeHeader)

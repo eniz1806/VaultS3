@@ -20,6 +20,33 @@ type Config struct {
 	Notifications NotificationsConfig `yaml:"notifications"`
 	Replication   ReplicationConfig   `yaml:"replication"`
 	Scanner       ScannerConfig       `yaml:"scanner"`
+	Tiering       TieringConfig       `yaml:"tiering"`
+	Backup        BackupConfig        `yaml:"backup"`
+}
+
+type TieringConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	ColdDataDir      string `yaml:"cold_data_dir"`
+	MigrateAfterDays int    `yaml:"migrate_after_days"`
+	ScanIntervalSecs int    `yaml:"scan_interval_secs"`
+}
+
+type BackupTarget struct {
+	Name        string `yaml:"name"`
+	Type        string `yaml:"type"` // "local" or "s3"
+	Path        string `yaml:"path"`
+	S3Endpoint  string `yaml:"s3_endpoint"`
+	S3AccessKey string `yaml:"s3_access_key"`
+	S3SecretKey string `yaml:"s3_secret_key"`
+	S3Bucket    string `yaml:"s3_bucket"`
+}
+
+type BackupConfig struct {
+	Enabled     bool           `yaml:"enabled"`
+	Targets     []BackupTarget `yaml:"targets"`
+	ScheduleCron string        `yaml:"schedule_cron"`
+	RetentionDays int          `yaml:"retention_days"`
+	Incremental  bool          `yaml:"incremental"`
 }
 
 type ScannerConfig struct {
@@ -160,6 +187,14 @@ func Load(path string) (*Config, error) {
 			QuarantineBucket: "vaults3-quarantine",
 			MaxScanSizeBytes: 104857600, // 100MB
 			Workers:          2,
+		},
+		Tiering: TieringConfig{
+			MigrateAfterDays: 30,
+			ScanIntervalSecs: 3600,
+		},
+		Backup: BackupConfig{
+			ScheduleCron:  "0 2 * * *",
+			RetentionDays: 30,
 		},
 	}
 

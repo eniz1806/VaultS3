@@ -4,12 +4,14 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/eniz1806/VaultS3/internal/backup"
 	"github.com/eniz1806/VaultS3/internal/config"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
 	"github.com/eniz1806/VaultS3/internal/scanner"
 	"github.com/eniz1806/VaultS3/internal/search"
 	"github.com/eniz1806/VaultS3/internal/storage"
+	"github.com/eniz1806/VaultS3/internal/tiering"
 )
 
 // APIHandler serves the dashboard REST API at /api/v1/.
@@ -22,6 +24,8 @@ type APIHandler struct {
 	activity    *ActivityLog
 	searchIndex *search.Index
 	scanner     *scanner.Scanner
+	tieringMgr  *tiering.Manager
+	backupSched *backup.Scheduler
 }
 
 func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Collector, cfg *config.Config, activity *ActivityLog) *APIHandler {
@@ -145,6 +149,20 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleScannerStatus(w, r)
 	case path == "/scanner/quarantine" && r.Method == http.MethodGet:
 		h.handleQuarantineList(w, r)
+
+	// Tiering routes
+	case path == "/tiering/status" && r.Method == http.MethodGet:
+		h.handleTieringStatus(w, r)
+	case path == "/tiering/migrate" && r.Method == http.MethodPost:
+		h.handleTieringMigrate(w, r)
+
+	// Backup routes
+	case path == "/backups" && r.Method == http.MethodGet:
+		h.handleBackupList(w, r)
+	case path == "/backups/trigger" && r.Method == http.MethodPost:
+		h.handleBackupTrigger(w, r)
+	case path == "/backups/status" && r.Method == http.MethodGet:
+		h.handleBackupStatus(w, r)
 
 	// Replication routes
 	case path == "/replication/status" && r.Method == http.MethodGet:

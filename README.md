@@ -42,6 +42,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Presigned upload restrictions** — Enforce max file size, content type whitelist, and key prefix on presigned PUT URLs
 - **Full-text search** — In-memory search index over object metadata, tags, content type, and key patterns with incremental updates
 - **Webhook virus scanning** — POST uploaded objects to a configurable scan endpoint (ClamAV, VirusTotal, etc.) with quarantine bucket for infected files
+- **Data tiering** — Automatic hot/cold storage migration based on access patterns with transparent reads and manual migration API
+- **Backup scheduler** — Scheduled full/incremental backups to local directory targets with cron-like scheduling and backup history
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -85,6 +87,11 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Full-Text Search | `GET /api/v1/search?q=...` | Done |
 | Scanner Status | `GET /api/v1/scanner/status` | Done |
 | Quarantine List | `GET /api/v1/scanner/quarantine` | Done |
+| Tiering Status | `GET /api/v1/tiering/status` | Done |
+| Tiering Migrate | `POST /api/v1/tiering/migrate` | Done |
+| Backup List | `GET /api/v1/backups` | Done |
+| Backup Trigger | `POST /api/v1/backups/trigger` | Done |
+| Backup Status | `GET /api/v1/backups/status` | Done |
 
 ## Quick Start
 
@@ -625,6 +632,62 @@ curl http://localhost:9000/api/v1/scanner/status       # queue depth + recent sc
 curl http://localhost:9000/api/v1/scanner/quarantine    # quarantined objects
 ```
 
+### Data Tiering
+
+Automatically migrate infrequently accessed objects to a cold storage directory:
+
+```yaml
+tiering:
+  enabled: true
+  cold_data_dir: "./cold_data"
+  migrate_after_days: 30
+  scan_interval_secs: 3600
+```
+
+Objects not accessed for `migrate_after_days` are moved to the cold data directory. On read, cold objects are transparently served and promoted back to hot storage. Manual migration is available via API:
+
+```bash
+# Check tiering status (hot/cold counts and sizes)
+curl http://localhost:9000/api/v1/tiering/status -H "Authorization: Bearer <token>"
+
+# Manually migrate an object to cold tier
+curl -X POST http://localhost:9000/api/v1/tiering/migrate \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"bucket":"my-bucket","key":"archive/old-file.zip","direction":"cold"}'
+```
+
+### Backup Scheduler
+
+Schedule automatic backups to local directories:
+
+```yaml
+backup:
+  enabled: true
+  targets:
+    - name: "local-backup"
+      type: "local"
+      path: "/backups/vaults3"
+  schedule_cron: "0 2 * * *"   # daily at 2am
+  retention_days: 30
+  incremental: false            # true for incremental backups
+```
+
+Monitor and trigger backups via API:
+
+```bash
+# Check backup status
+curl http://localhost:9000/api/v1/backups/status -H "Authorization: Bearer <token>"
+
+# List backup history
+curl http://localhost:9000/api/v1/backups -H "Authorization: Bearer <token>"
+
+# Trigger immediate backup
+curl -X POST http://localhost:9000/api/v1/backups/trigger -H "Authorization: Bearer <token>"
+```
+
+Incremental backups only copy objects modified since the last successful backup. Full backups mirror the complete object store.
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -653,6 +716,8 @@ VaultS3/
 │   ├── replication/           — Async replication worker (SigV4 signer, queue processor)
 │   ├── search/                — In-memory full-text search index
 │   ├── scanner/               — Webhook virus scanning with quarantine
+│   ├── tiering/               — Hot/cold data tiering manager
+│   ├── backup/                — Backup scheduler with local targets
 │   ├── api/                   — Dashboard REST API (JWT auth, IAM, STS, audit)
 │   └── dashboard/             — Embedded React SPA
 ├── web/                       — React dashboard source (Vite + Tailwind)
@@ -716,3 +781,5 @@ VaultS3/
 - [x] Presigned upload restrictions (max size, content type whitelist, key prefix enforcement)
 - [x] Full-text search (in-memory index over keys, content types, tags; `GET /api/v1/search`)
 - [x] Webhook virus scanning (ClamAV/VirusTotal integration, quarantine bucket, fail-open/closed modes)
+- [x] Data tiering (hot/cold storage, automatic migration based on access patterns, transparent reads, manual migration API)
+- [x] Backup scheduler (full/incremental backups to local targets, cron scheduling, backup history, trigger API)
