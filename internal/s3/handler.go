@@ -23,6 +23,12 @@ type NotificationFunc func(eventType, bucket, key string, size int64, etag, vers
 // ReplicationFunc is called after object mutations to enqueue replication events.
 type ReplicationFunc func(eventType, bucket, key string, size int64, etag, versionID string)
 
+// ScanFunc is called after object uploads to trigger virus scanning.
+type ScanFunc func(bucket, key string, size int64)
+
+// SearchUpdateFunc is called after object mutations to update the search index.
+type SearchUpdateFunc func(eventType, bucket, key string)
+
 // Handler routes incoming S3 API requests to the appropriate handler.
 type Handler struct {
 	store             *metadata.Store
@@ -37,6 +43,8 @@ type Handler struct {
 	onAudit           AuditFunc
 	onNotification    NotificationFunc
 	onReplication     ReplicationFunc
+	onScan            ScanFunc
+	onSearchUpdate    SearchUpdateFunc
 }
 
 func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
@@ -73,6 +81,18 @@ func (h *Handler) SetNotificationFunc(fn NotificationFunc) {
 func (h *Handler) SetReplicationFunc(fn ReplicationFunc) {
 	h.onReplication = fn
 	h.objects.onReplication = fn
+}
+
+// SetScanFunc sets the callback for virus scanning after uploads.
+func (h *Handler) SetScanFunc(fn ScanFunc) {
+	h.onScan = fn
+	h.objects.onScan = fn
+}
+
+// SetSearchUpdateFunc sets the callback for search index updates.
+func (h *Handler) SetSearchUpdateFunc(fn SearchUpdateFunc) {
+	h.onSearchUpdate = fn
+	h.objects.onSearchUpdate = fn
 }
 
 // statusWriter wraps ResponseWriter to capture the status code.

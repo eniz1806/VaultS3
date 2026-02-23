@@ -48,3 +48,12 @@ replication:
   scan_interval_secs: 30
   max_retries: 5
   batch_size: 100
+
+scanner:
+  enabled: false
+  webhook_url: "http://localhost:3310/scan"
+  timeout_secs: 30
+  quarantine_bucket: "vaults3-quarantine"
+  fail_closed: false
+  max_scan_size_bytes: 104857600  # 100MB
+  workers: 2

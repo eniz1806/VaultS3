@@ -226,6 +226,12 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 	if h.onReplication != nil {
 		h.onReplication("s3:ObjectCreated:CompleteMultipartUpload", bucket, key, totalSize, etag, "")
 	}
+	if h.onScan != nil {
+		h.onScan(bucket, key, totalSize)
+	}
+	if h.onSearchUpdate != nil {
+		h.onSearchUpdate("put", bucket, key)
+	}
 }
 
 // AbortMultipartUpload handles DELETE /{bucket}/{key}?uploadId=X.

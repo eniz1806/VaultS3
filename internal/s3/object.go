@@ -24,6 +24,8 @@ type ObjectHandler struct {
 	encryptionEnabled bool
 	onNotification    NotificationFunc
 	onReplication     ReplicationFunc
+	onScan            ScanFunc
+	onSearchUpdate    SearchUpdateFunc
 }
 
 // checkQuota verifies bucket quota limits before writing.
@@ -125,6 +127,12 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		if h.onReplication != nil {
 			h.onReplication("s3:ObjectCreated:Put", bucket, key, written, etag, versionID)
 		}
+		if h.onScan != nil {
+			h.onScan(bucket, key, written)
+		}
+		if h.onSearchUpdate != nil {
+			h.onSearchUpdate("put", bucket, key)
+		}
 		return
 	}
 
@@ -154,6 +162,12 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 	}
 	if h.onReplication != nil {
 		h.onReplication("s3:ObjectCreated:Put", bucket, key, written, etag, "")
+	}
+	if h.onScan != nil {
+		h.onScan(bucket, key, written)
+	}
+	if h.onSearchUpdate != nil {
+		h.onSearchUpdate("put", bucket, key)
 	}
 }
 
@@ -344,6 +358,9 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 		if h.onReplication != nil {
 			h.onReplication("s3:ObjectRemoved:Delete", bucket, key, 0, "", versionID)
 		}
+		if h.onSearchUpdate != nil {
+			h.onSearchUpdate("delete", bucket, key)
+		}
 		return
 	}
 
@@ -377,6 +394,9 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 		if h.onReplication != nil {
 			h.onReplication("s3:ObjectRemoved:Delete", bucket, key, 0, "", dmVersionID)
 		}
+		if h.onSearchUpdate != nil {
+			h.onSearchUpdate("delete", bucket, key)
+		}
 		return
 	}
 
@@ -393,6 +413,9 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 	}
 	if h.onReplication != nil {
 		h.onReplication("s3:ObjectRemoved:Delete", bucket, key, 0, "", "")
+	}
+	if h.onSearchUpdate != nil {
+		h.onSearchUpdate("delete", bucket, key)
 	}
 }
 
@@ -554,6 +577,12 @@ func (h *ObjectHandler) CopyObject(w http.ResponseWriter, r *http.Request, bucke
 	if h.onReplication != nil {
 		h.onReplication("s3:ObjectCreated:Copy", bucket, key, written, etag, "")
 	}
+	if h.onScan != nil {
+		h.onScan(bucket, key, written)
+	}
+	if h.onSearchUpdate != nil {
+		h.onSearchUpdate("put", bucket, key)
+	}
 }
 
 func parseCopySource(source string) (bucket, key string) {
@@ -596,6 +625,9 @@ func (h *ObjectHandler) BatchDelete(w http.ResponseWriter, r *http.Request, buck
 			}
 			if h.onReplication != nil {
 				h.onReplication("s3:ObjectRemoved:Delete", bucket, obj.Key, 0, "", "")
+			}
+			if h.onSearchUpdate != nil {
+				h.onSearchUpdate("delete", bucket, obj.Key)
 			}
 		}
 	}
@@ -642,6 +674,9 @@ func (h *ObjectHandler) PutObjectTagging(w http.ResponseWriter, r *http.Request,
 	}
 
 	w.WriteHeader(http.StatusOK)
+	if h.onSearchUpdate != nil {
+		h.onSearchUpdate("put", bucket, key)
+	}
 }
 
 // GetObjectTagging handles GET /{bucket}/{key}?tagging.
@@ -694,6 +729,9 @@ func (h *ObjectHandler) DeleteObjectTagging(w http.ResponseWriter, r *http.Reque
 	meta.Tags = nil
 	h.store.PutObjectMeta(*meta)
 	w.WriteHeader(http.StatusNoContent)
+	if h.onSearchUpdate != nil {
+		h.onSearchUpdate("put", bucket, key)
+	}
 }
 
 // ListObjectVersions handles GET /{bucket}?versions.

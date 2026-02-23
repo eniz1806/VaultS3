@@ -40,6 +40,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Async replication** — One-way async replication to peer VaultS3 instances with BoltDB-backed queue, retry with exponential backoff, and loop prevention
 - **CLI tool** — Standalone `vaults3-cli` binary for bucket, object, user, and replication management without AWS CLI
 - **Presigned upload restrictions** — Enforce max file size, content type whitelist, and key prefix on presigned PUT URLs
+- **Full-text search** — In-memory search index over object metadata, tags, content type, and key patterns with incremental updates
+- **Webhook virus scanning** — POST uploaded objects to a configurable scan endpoint (ClamAV, VirusTotal, etc.) with quarantine bucket for infected files
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -80,6 +82,9 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Replication Status | `GET /api/v1/replication/status` | Done |
 | Replication Queue | `GET /api/v1/replication/queue` | Done |
 | Presigned URL Generation | `POST /api/v1/presign` | Done |
+| Full-Text Search | `GET /api/v1/search?q=...` | Done |
+| Scanner Status | `GET /api/v1/scanner/status` | Done |
+| Quarantine List | `GET /api/v1/scanner/quarantine` | Done |
 
 ## Quick Start
 
@@ -578,6 +583,48 @@ requests.put(url, data=image_data, headers={"Content-Type": "image/jpeg"})
 
 Restriction parameters (`X-Vault-MaxSize`, `X-Vault-AllowTypes`, `X-Vault-RequirePrefix`) are embedded in the signed URL and validated server-side.
 
+### Full-Text Search
+
+Search objects by key, content type, and tags across all buckets:
+
+```bash
+# Search by key substring
+curl "http://localhost:9000/api/v1/search?q=readme" -H "Authorization: Bearer <token>"
+
+# Search by content type
+curl "http://localhost:9000/api/v1/search?q=type:image" -H "Authorization: Bearer <token>"
+
+# Search by tag
+curl "http://localhost:9000/api/v1/search?q=tag:project=vaults3" -H "Authorization: Bearer <token>"
+
+# Filter by bucket and limit results
+curl "http://localhost:9000/api/v1/search?q=docs&bucket=my-bucket&limit=10" -H "Authorization: Bearer <token>"
+```
+
+The search index is built on startup from BoltDB metadata and updated incrementally on every object put, delete, copy, and tag change. Supports plain text (substring match), `type:` prefix for content-type filtering, and `tag:key=value` for tag matching.
+
+### Webhook Virus Scanning
+
+Scan uploaded objects with an external virus scanner (ClamAV REST, VirusTotal, etc.):
+
+```yaml
+scanner:
+  enabled: true
+  webhook_url: "http://localhost:3310/scan"
+  timeout_secs: 30
+  quarantine_bucket: "vaults3-quarantine"
+  fail_closed: false          # false=fail-open (keep file), true=quarantine on error
+  max_scan_size_bytes: 104857600  # 100MB
+  workers: 2
+```
+
+When enabled, every uploaded object is POSTed to the webhook URL as multipart/form-data. If the scanner returns 406/403 (infected), the object is moved to the quarantine bucket and deleted from the original. Monitor via dashboard API:
+
+```bash
+curl http://localhost:9000/api/v1/scanner/status       # queue depth + recent scans
+curl http://localhost:9000/api/v1/scanner/quarantine    # quarantined objects
+```
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -604,6 +651,8 @@ VaultS3/
 │   ├── iam/                   — IAM policy engine, identity, IP access control
 │   ├── notify/                — Event notification dispatcher (webhook delivery)
 │   ├── replication/           — Async replication worker (SigV4 signer, queue processor)
+│   ├── search/                — In-memory full-text search index
+│   ├── scanner/               — Webhook virus scanning with quarantine
 │   ├── api/                   — Dashboard REST API (JWT auth, IAM, STS, audit)
 │   └── dashboard/             — Embedded React SPA
 ├── web/                       — React dashboard source (Vite + Tailwind)
@@ -665,3 +714,5 @@ VaultS3/
 - [x] Async replication (one-way to peer VaultS3 instances, BoltDB queue, retry with exponential backoff, loop prevention)
 - [x] CLI tool (`vaults3-cli` — bucket, object, user, replication management)
 - [x] Presigned upload restrictions (max size, content type whitelist, key prefix enforcement)
+- [x] Full-text search (in-memory index over keys, content types, tags; `GET /api/v1/search`)
+- [x] Webhook virus scanning (ClamAV/VirusTotal integration, quarantine bucket, fail-open/closed modes)

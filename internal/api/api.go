@@ -7,17 +7,21 @@ import (
 	"github.com/eniz1806/VaultS3/internal/config"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
+	"github.com/eniz1806/VaultS3/internal/scanner"
+	"github.com/eniz1806/VaultS3/internal/search"
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
 
 // APIHandler serves the dashboard REST API at /api/v1/.
 type APIHandler struct {
-	store    *metadata.Store
-	engine   storage.Engine
-	metrics  *metrics.Collector
-	cfg      *config.Config
-	jwt      *JWTService
-	activity *ActivityLog
+	store       *metadata.Store
+	engine      storage.Engine
+	metrics     *metrics.Collector
+	cfg         *config.Config
+	jwt         *JWTService
+	activity    *ActivityLog
+	searchIndex *search.Index
+	scanner     *scanner.Scanner
 }
 
 func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Collector, cfg *config.Config, activity *ActivityLog) *APIHandler {
@@ -29,6 +33,11 @@ func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Col
 		jwt:      NewJWTService(cfg.Auth.AdminSecretKey),
 		activity: activity,
 	}
+}
+
+// SetSearchIndex sets the search index for the API handler.
+func (h *APIHandler) SetSearchIndex(idx *search.Index) {
+	h.searchIndex = idx
 }
 
 func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -123,9 +132,19 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/notifications" && r.Method == http.MethodGet:
 		h.handleListNotifications(w, r)
 
+	// Search
+	case path == "/search" && r.Method == http.MethodGet:
+		h.handleSearch(w, r)
+
 	// Presigned URL generation
 	case path == "/presign" && r.Method == http.MethodPost:
 		h.handleGeneratePresign(w, r)
+
+	// Scanner routes
+	case path == "/scanner/status" && r.Method == http.MethodGet:
+		h.handleScannerStatus(w, r)
+	case path == "/scanner/quarantine" && r.Method == http.MethodGet:
+		h.handleQuarantineList(w, r)
 
 	// Replication routes
 	case path == "/replication/status" && r.Method == http.MethodGet:

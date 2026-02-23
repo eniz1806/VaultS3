@@ -19,6 +19,17 @@ type Config struct {
 	Security      SecurityConfig      `yaml:"security"`
 	Notifications NotificationsConfig `yaml:"notifications"`
 	Replication   ReplicationConfig   `yaml:"replication"`
+	Scanner       ScannerConfig       `yaml:"scanner"`
+}
+
+type ScannerConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	WebhookURL       string `yaml:"webhook_url"`
+	TimeoutSecs      int    `yaml:"timeout_secs"`
+	QuarantineBucket string `yaml:"quarantine_bucket"`
+	FailClosed       bool   `yaml:"fail_closed"`
+	MaxScanSizeBytes int64  `yaml:"max_scan_size_bytes"`
+	Workers          int    `yaml:"workers"`
 }
 
 type ReplicationPeer struct {
@@ -143,6 +154,12 @@ func Load(path string) (*Config, error) {
 			ScanIntervalSecs: 30,
 			MaxRetries:       5,
 			BatchSize:        100,
+		},
+		Scanner: ScannerConfig{
+			TimeoutSecs:      30,
+			QuarantineBucket: "vaults3-quarantine",
+			MaxScanSizeBytes: 104857600, // 100MB
+			Workers:          2,
 		},
 	}
 

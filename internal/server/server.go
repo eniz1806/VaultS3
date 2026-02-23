@@ -21,6 +21,8 @@ import (
 	"github.com/eniz1806/VaultS3/internal/notify"
 	"github.com/eniz1806/VaultS3/internal/replication"
 	"github.com/eniz1806/VaultS3/internal/s3"
+	"github.com/eniz1806/VaultS3/internal/scanner"
+	"github.com/eniz1806/VaultS3/internal/search"
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
 
@@ -31,9 +33,11 @@ type Server struct {
 	s3h       *s3.Handler
 	metrics   *metrics.Collector
 	activity  *api.ActivityLog
-	accessLog   *accesslog.AccessLogger
-	notifyDisp  *notify.Dispatcher
-	replWorker  *replication.Worker
+	accessLog    *accesslog.AccessLogger
+	notifyDisp   *notify.Dispatcher
+	replWorker   *replication.Worker
+	searchIndex  *search.Index
+	scanWorker   *scanner.Scanner
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -169,19 +173,48 @@ func New(cfg *config.Config) (*Server, error) {
 		log.Printf("  Replication:  enabled (%d peers, scan every %ds)", len(cfg.Replication.Peers), cfg.Replication.ScanIntervalSecs)
 	}
 
+	// Build search index
+	searchIdx := search.NewIndex(store)
+	if err := searchIdx.Build(); err != nil {
+		log.Printf("Warning: search index build failed: %v", err)
+	}
+	s3h.SetSearchUpdateFunc(func(eventType, bucket, key string) {
+		if eventType == "delete" {
+			searchIdx.Remove(bucket, key)
+		} else {
+			if meta, err := store.GetObjectMeta(bucket, key); err == nil {
+				searchIdx.Update(bucket, key, *meta)
+			}
+		}
+	})
+
+	// Initialize scanner if enabled
+	var scanWorker *scanner.Scanner
+	if cfg.Scanner.Enabled && cfg.Scanner.WebhookURL != "" {
+		scanWorker = scanner.NewScanner(store, engine,
+			cfg.Scanner.WebhookURL, cfg.Scanner.Workers,
+			cfg.Scanner.TimeoutSecs, cfg.Scanner.QuarantineBucket,
+			cfg.Scanner.FailClosed, cfg.Scanner.MaxScanSizeBytes, 256)
+		s3h.SetScanFunc(func(bucket, key string, size int64) {
+			scanWorker.Scan(bucket, key, size)
+		})
+	}
+
 	// Initialize built-in IAM policies
 	initBuiltinPolicies(store)
 
 	return &Server{
-		cfg:        cfg,
-		store:      store,
-		engine:     engine,
-		s3h:        s3h,
-		metrics:    mc,
-		activity:   activityLog,
-		accessLog:  accessLogger,
-		notifyDisp: notifyDispatcher,
-		replWorker: replWorker,
+		cfg:         cfg,
+		store:       store,
+		engine:      engine,
+		s3h:         s3h,
+		metrics:     mc,
+		activity:    activityLog,
+		accessLog:   accessLogger,
+		notifyDisp:  notifyDispatcher,
+		replWorker:  replWorker,
+		searchIndex: searchIdx,
+		scanWorker:  scanWorker,
 	}, nil
 }
 
@@ -192,6 +225,10 @@ func (s *Server) Run() error {
 
 	// Dashboard API
 	apiHandler := api.NewAPIHandler(s.store, s.engine, s.metrics, s.cfg, s.activity)
+	apiHandler.SetSearchIndex(s.searchIndex)
+	if s.scanWorker != nil {
+		apiHandler.SetScanner(s.scanWorker)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler(s.metrics.StartTime()))
@@ -246,6 +283,15 @@ func (s *Server) Run() error {
 		defer replCancel()
 		go s.replWorker.Run(replCtx)
 	}
+
+	// Start scanner workers if enabled
+	if s.scanWorker != nil {
+		scanCtx, scanCancel := context.WithCancel(context.Background())
+		defer scanCancel()
+		s.scanWorker.Start(scanCtx, s.cfg.Scanner.Workers)
+	}
+
+	log.Printf("  Search:       %d objects indexed", s.searchIndex.Count())
 
 	// Start server in goroutine
 	errCh := make(chan error, 1)
