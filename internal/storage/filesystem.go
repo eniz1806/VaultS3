@@ -38,6 +38,10 @@ func (fs *FileSystem) objectPath(bucket, key string) string {
 	return filepath.Join(fs.dataDir, bucket, key)
 }
 
+func (fs *FileSystem) versionPath(bucket, key, versionID string) string {
+	return filepath.Join(fs.dataDir, bucket, ".vs", key, versionID)
+}
+
 func (fs *FileSystem) CreateBucketDir(bucket string) error {
 	return os.MkdirAll(fs.bucketPath(bucket), 0755)
 }
@@ -132,6 +136,10 @@ func (fs *FileSystem) ListObjects(bucket, prefix, startAfter string, maxKeys int
 		if err != nil {
 			return nil
 		}
+		// Skip the .vs/ versions directory
+		if info.IsDir() && info.Name() == ".vs" {
+			return filepath.SkipDir
+		}
 		if info.IsDir() {
 			return nil
 		}
@@ -184,6 +192,9 @@ func (fs *FileSystem) BucketSize(bucket string) (int64, int64, error) {
 		if err != nil {
 			return nil
 		}
+		if info.IsDir() && info.Name() == ".vs" {
+			return filepath.SkipDir
+		}
 		if !info.IsDir() {
 			totalSize += info.Size()
 			count++
@@ -192,6 +203,68 @@ func (fs *FileSystem) BucketSize(bucket string) (int64, int64, error) {
 	})
 
 	return totalSize, count, err
+}
+
+func (fs *FileSystem) PutObjectVersion(bucket, key, versionID string, reader io.Reader, size int64) (int64, string, error) {
+	vPath := fs.versionPath(bucket, key, versionID)
+
+	if err := os.MkdirAll(filepath.Dir(vPath), 0755); err != nil {
+		return 0, "", fmt.Errorf("create version dir: %w", err)
+	}
+
+	f, err := os.Create(vPath)
+	if err != nil {
+		return 0, "", fmt.Errorf("create version file: %w", err)
+	}
+	defer f.Close()
+
+	h := md5.New()
+	written, err := io.Copy(f, io.TeeReader(reader, h))
+	if err != nil {
+		os.Remove(vPath)
+		return 0, "", fmt.Errorf("write version: %w", err)
+	}
+
+	etag := fmt.Sprintf("\"%x\"", h.Sum(nil))
+	return written, etag, nil
+}
+
+func (fs *FileSystem) GetObjectVersion(bucket, key, versionID string) (ReadSeekCloser, int64, error) {
+	vPath := fs.versionPath(bucket, key, versionID)
+
+	info, err := os.Stat(vPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("stat version: %w", err)
+	}
+
+	f, err := os.Open(vPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("open version: %w", err)
+	}
+
+	return f, info.Size(), nil
+}
+
+func (fs *FileSystem) DeleteObjectVersion(bucket, key, versionID string) error {
+	vPath := fs.versionPath(bucket, key, versionID)
+	err := os.Remove(vPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete version: %w", err)
+	}
+
+	// Clean up empty parent directories up to .vs/
+	dir := filepath.Dir(vPath)
+	vsDir := filepath.Join(fs.bucketPath(bucket), ".vs")
+	for dir != vsDir && dir != fs.bucketPath(bucket) {
+		entries, _ := os.ReadDir(dir)
+		if len(entries) > 0 {
+			break
+		}
+		os.Remove(dir)
+		dir = filepath.Dir(dir)
+	}
+
+	return nil
 }
 
 func computeETag(path string) string {

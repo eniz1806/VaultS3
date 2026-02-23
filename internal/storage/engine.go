@@ -24,6 +24,11 @@ type Engine interface {
 	// List operations
 	ListObjects(bucket, prefix, startAfter string, maxKeys int) ([]ObjectInfo, bool, error)
 
+	// Version operations
+	PutObjectVersion(bucket, key, versionID string, reader io.Reader, size int64) (int64, string, error)
+	GetObjectVersion(bucket, key, versionID string) (ReadSeekCloser, int64, error)
+	DeleteObjectVersion(bucket, key, versionID string) error
+
 	// Stats
 	BucketSize(bucket string) (int64, int64, error) // totalSize, objectCount, error
 

@@ -25,6 +25,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Health checks** — `/health` (liveness) and `/ready` (readiness) endpoints for load balancers and Kubernetes
 - **Graceful shutdown** — Drains in-flight requests on SIGTERM/SIGINT with configurable timeout
 - **TLS support** — Optional HTTPS with configurable cert/key paths
+- **Object versioning** — Per-bucket versioning with version IDs, delete markers, version-specific GET/DELETE/HEAD
+- **Object locking (WORM)** — Legal hold and retention (GOVERNANCE/COMPLIANCE) to prevent deletion
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -47,6 +49,10 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Object Tagging | `PUT/GET/DELETE /{bucket}/{key}?tagging` | Done |
 | Bucket Policy | `PUT/GET/DELETE /{bucket}?policy` | Done |
 | Bucket Quota | `PUT/GET /{bucket}?quota` | Done |
+| Bucket Versioning | `PUT/GET /{bucket}?versioning` | Done |
+| List Object Versions | `GET /{bucket}?versions` | Done |
+| Object Locking (Legal Hold) | `PUT/GET /{bucket}/{key}?legal-hold` | Done |
+| Object Locking (Retention) | `PUT/GET /{bucket}/{key}?retention` | Done |
 | Presigned URLs | — | Done |
 | Metrics | `GET /metrics` | Done |
 
@@ -168,6 +174,49 @@ docker build -t vaults3 .
 docker run -p 9000:9000 -v ./data:/data -v ./metadata:/metadata vaults3
 ```
 
+### Object Versioning
+
+Enable versioning on a bucket to keep multiple versions of objects:
+
+```python
+import boto3
+
+s3 = boto3.client('s3', endpoint_url='http://localhost:9000',
+    aws_access_key_id='vaults3-admin',
+    aws_secret_access_key='vaults3-secret-change-me')
+
+# Enable versioning
+s3.put_bucket_versioning(Bucket='my-bucket',
+    VersioningConfiguration={'Status': 'Enabled'})
+
+# Upload creates a new version each time
+s3.put_object(Bucket='my-bucket', Key='file.txt', Body=b'v1')
+s3.put_object(Bucket='my-bucket', Key='file.txt', Body=b'v2')
+
+# Get specific version
+s3.get_object(Bucket='my-bucket', Key='file.txt', VersionId='...')
+
+# Delete creates a delete marker (versions preserved)
+s3.delete_object(Bucket='my-bucket', Key='file.txt')
+
+# Permanently delete a specific version
+s3.delete_object(Bucket='my-bucket', Key='file.txt', VersionId='...')
+```
+
+### Object Locking (WORM)
+
+Protect objects from deletion with legal holds or retention policies:
+
+```python
+# Legal hold — prevents deletion regardless
+s3.put_object_legal_hold(Bucket='my-bucket', Key='file.txt', VersionId='...',
+    LegalHold={'Status': 'ON'})
+
+# Retention — prevents deletion until date
+s3.put_object_retention(Bucket='my-bucket', Key='file.txt', VersionId='...',
+    Retention={'Mode': 'COMPLIANCE', 'RetainUntilDate': '2030-01-01T00:00:00Z'})
+```
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -236,8 +285,8 @@ VaultS3/
 - [x] Graceful shutdown (SIGTERM/SIGINT with configurable timeout)
 - [x] TLS support (HTTPS with cert/key)
 - [x] Docker image (multi-stage build with health check)
-- [ ] Object versioning
-- [ ] Object locking (WORM)
+- [x] Object versioning (per-bucket, version IDs, delete markers, version-specific operations)
+- [x] Object locking / WORM (legal hold, retention with GOVERNANCE/COMPLIANCE modes)
 - [ ] Lifecycle rules
 - [ ] Compression
 - [ ] Replication

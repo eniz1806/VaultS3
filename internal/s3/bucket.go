@@ -224,6 +224,56 @@ func (h *BucketHandler) GetBucketQuota(w http.ResponseWriter, r *http.Request, b
 	json.NewEncoder(w).Encode(resp)
 }
 
+// PutBucketVersioning handles PUT /{bucket}?versioning.
+func (h *BucketHandler) PutBucketVersioning(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		XMLName xml.Name `xml:"VersioningConfiguration"`
+		Status  string   `xml:"Status"`
+	}
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedXML", "Could not parse versioning XML", http.StatusBadRequest)
+		return
+	}
+
+	if req.Status != "Enabled" && req.Status != "Suspended" {
+		writeS3Error(w, "IllegalVersioningConfigurationException", "Status must be Enabled or Suspended", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.store.SetBucketVersioning(bucket, req.Status); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketVersioning handles GET /{bucket}?versioning.
+func (h *BucketHandler) GetBucketVersioning(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	status, _ := h.store.GetBucketVersioning(bucket)
+
+	type versioningConfig struct {
+		XMLName xml.Name `xml:"VersioningConfiguration"`
+		Xmlns   string   `xml:"xmlns,attr"`
+		Status  string   `xml:"Status,omitempty"`
+	}
+
+	writeXML(w, http.StatusOK, versioningConfig{
+		Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
+		Status: status,
+	})
+}
+
 func isValidBucketName(name string) bool {
 	if len(name) < 3 || len(name) > 63 {
 		return false

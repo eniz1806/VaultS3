@@ -128,6 +128,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Versioning operations
+		if _, ok := bq["versioning"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketVersioning(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketVersioning(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// List object versions
+		if _, ok := bq["versions"]; ok {
+			if r.Method == http.MethodGet {
+				h.objects.ListObjectVersions(w, r, bucket)
+			} else {
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
 		// Quota operations
 		if _, ok := bq["quota"]; ok {
 			switch r.Method {
@@ -163,6 +186,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		// Object-level operations
 		q := r.URL.Query()
+
+		// Legal hold operations
+		if _, ok := q["legal-hold"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.objects.PutObjectLegalHold(w, r, bucket, key)
+			case http.MethodGet:
+				h.objects.GetObjectLegalHold(w, r, bucket, key)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Retention operations
+		if _, ok := q["retention"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.objects.PutObjectRetention(w, r, bucket, key)
+			case http.MethodGet:
+				h.objects.GetObjectRetention(w, r, bucket, key)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
 
 		// Check for tagging operations
 		if _, ok := q["tagging"]; ok {

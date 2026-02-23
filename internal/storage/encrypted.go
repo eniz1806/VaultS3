@@ -124,6 +124,61 @@ func (e *EncryptedEngine) BucketSize(bucket string) (int64, int64, error) {
 	return e.inner.BucketSize(bucket)
 }
 
+func (e *EncryptedEngine) PutObjectVersion(bucket, key, versionID string, reader io.Reader, size int64) (int64, string, error) {
+	plaintext, err := io.ReadAll(reader)
+	if err != nil {
+		return 0, "", fmt.Errorf("read plaintext: %w", err)
+	}
+
+	nonce := make([]byte, e.gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return 0, "", fmt.Errorf("generate nonce: %w", err)
+	}
+
+	ciphertext := e.gcm.Seal(nil, nonce, plaintext, nil)
+	encrypted := append(nonce, ciphertext...)
+
+	written, etag, err := e.inner.PutObjectVersion(bucket, key, versionID, bytes.NewReader(encrypted), int64(len(encrypted)))
+	if err != nil {
+		return 0, "", err
+	}
+	_ = written
+
+	return int64(len(plaintext)), etag, nil
+}
+
+func (e *EncryptedEngine) GetObjectVersion(bucket, key, versionID string) (ReadSeekCloser, int64, error) {
+	reader, _, err := e.inner.GetObjectVersion(bucket, key, versionID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer reader.Close()
+
+	encrypted, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read encrypted data: %w", err)
+	}
+
+	nonceSize := e.gcm.NonceSize()
+	if len(encrypted) < nonceSize {
+		return nil, 0, fmt.Errorf("encrypted data too short")
+	}
+
+	nonce := encrypted[:nonceSize]
+	ciphertext := encrypted[nonceSize:]
+
+	plaintext, err := e.gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("decrypt: %w", err)
+	}
+
+	return &bytesReadSeekCloser{Reader: bytes.NewReader(plaintext)}, int64(len(plaintext)), nil
+}
+
+func (e *EncryptedEngine) DeleteObjectVersion(bucket, key, versionID string) error {
+	return e.inner.DeleteObjectVersion(bucket, key, versionID)
+}
+
 func (e *EncryptedEngine) DataDir() string {
 	return e.inner.DataDir()
 }

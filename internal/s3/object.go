@@ -1,6 +1,8 @@
 package s3
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -46,6 +48,25 @@ func (h *ObjectHandler) checkQuota(w http.ResponseWriter, bucket string, incomin
 	return true
 }
 
+// generateVersionID creates a unique version ID using timestamp + random bytes.
+func generateVersionID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return fmt.Sprintf("%016x%s", time.Now().UnixNano(), hex.EncodeToString(b[:4]))
+}
+
+// detectContentType determines the content type for an object.
+func detectContentType(r *http.Request, key string) string {
+	ct := r.Header.Get("Content-Type")
+	if ct == "" || ct == "application/octet-stream" {
+		if detected := mime.TypeByExtension(filepath.Ext(key)); detected != "" {
+			return detected
+		}
+		return "application/octet-stream"
+	}
+	return ct
+}
+
 // PutObject handles PUT /{bucket}/{key}.
 func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket, key string) {
 	if !h.store.BucketExists(bucket) {
@@ -57,30 +78,62 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		return
 	}
 
+	versioning, _ := h.store.GetBucketVersioning(bucket)
+	ct := detectContentType(r, key)
+	now := time.Now().UTC()
+
+	if versioning == "Enabled" {
+		versionID := generateVersionID()
+
+		written, etag, err := h.engine.PutObjectVersion(bucket, key, versionID, r.Body, r.ContentLength)
+		if err != nil {
+			writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Mark previous latest as not latest
+		if oldMeta, err := h.store.GetObjectMeta(bucket, key); err == nil && oldMeta.VersionID != "" {
+			oldMeta.IsLatest = false
+			h.store.PutObjectVersion(*oldMeta)
+		}
+
+		meta := metadata.ObjectMeta{
+			Bucket:       bucket,
+			Key:          key,
+			ContentType:  ct,
+			ETag:         etag,
+			Size:         written,
+			LastModified: now.Unix(),
+			VersionID:    versionID,
+			IsLatest:     true,
+		}
+
+		h.store.PutObjectVersion(meta)
+		h.store.PutObjectMeta(meta) // update "latest pointer"
+
+		w.Header().Set("ETag", etag)
+		w.Header().Set("X-Amz-Version-Id", versionID)
+		if h.encryptionEnabled {
+			w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Non-versioned path (unchanged behavior)
 	written, etag, err := h.engine.PutObject(bucket, key, r.Body, r.ContentLength)
 	if err != nil {
 		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Determine Content-Type
-	ct := r.Header.Get("Content-Type")
-	if ct == "" || ct == "application/octet-stream" {
-		if detected := mime.TypeByExtension(filepath.Ext(key)); detected != "" {
-			ct = detected
-		} else {
-			ct = "application/octet-stream"
-		}
-	}
-
-	// Store object metadata
 	h.store.PutObjectMeta(metadata.ObjectMeta{
 		Bucket:       bucket,
 		Key:          key,
 		ContentType:  ct,
 		ETag:         etag,
 		Size:         written,
-		LastModified: time.Now().UTC().Unix(),
+		LastModified: now.Unix(),
 	})
 
 	w.Header().Set("ETag", etag)
@@ -90,22 +143,66 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 	w.WriteHeader(http.StatusOK)
 }
 
-// GetObject handles GET /{bucket}/{key} with optional Range support.
+// GetObject handles GET /{bucket}/{key} with optional Range support and ?versionId.
 func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket, key string) {
 	if !h.store.BucketExists(bucket) {
 		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
 		return
 	}
 
-	reader, size, err := h.engine.GetObject(bucket, key)
-	if err != nil {
-		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
-		return
+	versionID := r.URL.Query().Get("versionId")
+
+	var reader storage.ReadSeekCloser
+	var size int64
+	var meta *metadata.ObjectMeta
+	var err error
+
+	if versionID != "" {
+		// Get specific version
+		meta, err = h.store.GetObjectVersion(bucket, key, versionID)
+		if err != nil {
+			writeS3Error(w, "NoSuchVersion", "Version not found", http.StatusNotFound)
+			return
+		}
+		if meta.DeleteMarker {
+			w.Header().Set("X-Amz-Delete-Marker", "true")
+			w.Header().Set("X-Amz-Version-Id", versionID)
+			writeS3Error(w, "NoSuchKey", "Object is a delete marker", http.StatusNotFound)
+			return
+		}
+		reader, size, err = h.engine.GetObjectVersion(bucket, key, versionID)
+		if err != nil {
+			writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("X-Amz-Version-Id", versionID)
+	} else {
+		// Get latest version
+		meta, _ = h.store.GetObjectMeta(bucket, key)
+		if meta != nil && meta.DeleteMarker {
+			w.Header().Set("X-Amz-Delete-Marker", "true")
+			if meta.VersionID != "" {
+				w.Header().Set("X-Amz-Version-Id", meta.VersionID)
+			}
+			writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+			return
+		}
+
+		if meta != nil && meta.VersionID != "" {
+			// Versioned bucket — read from version storage
+			reader, size, err = h.engine.GetObjectVersion(bucket, key, meta.VersionID)
+			w.Header().Set("X-Amz-Version-Id", meta.VersionID)
+		} else {
+			reader, size, err = h.engine.GetObject(bucket, key)
+		}
+		if err != nil {
+			writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+			return
+		}
 	}
 	defer reader.Close()
 
-	// Set Content-Type from metadata
-	if meta, err := h.store.GetObjectMeta(bucket, key); err == nil {
+	if meta != nil {
 		w.Header().Set("Content-Type", meta.ContentType)
 		w.Header().Set("ETag", meta.ETag)
 	}
@@ -114,7 +211,6 @@ func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket
 		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
 	}
 
-	// Handle Range request
 	rangeHeader := r.Header.Get("Range")
 	if rangeHeader != "" {
 		h.serveRange(w, reader, size, rangeHeader)
@@ -201,6 +297,64 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 		return
 	}
 
+	versionID := r.URL.Query().Get("versionId")
+	versioning, _ := h.store.GetBucketVersioning(bucket)
+
+	if versionID != "" {
+		// Delete specific version permanently
+		// Check object lock first
+		if err := h.checkObjectLock(bucket, key, versionID); err != nil {
+			writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
+			return
+		}
+
+		h.engine.DeleteObjectVersion(bucket, key, versionID)
+		h.store.DeleteObjectVersion(bucket, key, versionID)
+
+		// If we deleted the latest, find the new latest
+		versions, _, _ := h.store.ListObjectVersions(bucket, key, "", "", 1)
+		if len(versions) > 0 {
+			// There's still a version — make it latest
+			versions[0].IsLatest = true
+			h.store.UpdateObjectVersionMeta(versions[0])
+		} else {
+			// No versions left — remove from objects bucket
+			h.store.DeleteObjectMeta(bucket, key)
+		}
+
+		w.Header().Set("X-Amz-Version-Id", versionID)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if versioning == "Enabled" {
+		// Create a delete marker instead of actually deleting
+		dmVersionID := generateVersionID()
+
+		// Mark previous latest as not latest
+		if oldMeta, err := h.store.GetObjectMeta(bucket, key); err == nil && oldMeta.VersionID != "" {
+			oldMeta.IsLatest = false
+			h.store.PutObjectVersion(*oldMeta)
+		}
+
+		dm := metadata.ObjectMeta{
+			Bucket:       bucket,
+			Key:          key,
+			VersionID:    dmVersionID,
+			IsLatest:     true,
+			DeleteMarker: true,
+			LastModified: time.Now().UTC().Unix(),
+		}
+		h.store.PutObjectVersion(dm)
+		h.store.PutObjectMeta(dm) // latest pointer now points to delete marker
+
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		w.Header().Set("X-Amz-Version-Id", dmVersionID)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Non-versioned: delete normally
 	if err := h.engine.DeleteObject(bucket, key); err != nil {
 		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
 		return
@@ -210,6 +364,28 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// checkObjectLock checks if an object version is locked (legal hold or retention).
+func (h *ObjectHandler) checkObjectLock(bucket, key, versionID string) error {
+	meta, err := h.store.GetObjectVersion(bucket, key, versionID)
+	if err != nil {
+		return nil // version doesn't exist in metadata, allow delete
+	}
+
+	if meta.LegalHold {
+		return fmt.Errorf("object is under legal hold")
+	}
+
+	if meta.RetentionMode != "" && meta.RetentionUntil > 0 {
+		if time.Now().UTC().Unix() < meta.RetentionUntil {
+			return fmt.Errorf("object is under %s retention until %s",
+				meta.RetentionMode,
+				time.Unix(meta.RetentionUntil, 0).UTC().Format(time.RFC3339))
+		}
+	}
+
+	return nil
+}
+
 // HeadObject handles HEAD /{bucket}/{key}.
 func (h *ObjectHandler) HeadObject(w http.ResponseWriter, r *http.Request, bucket, key string) {
 	if !h.store.BucketExists(bucket) {
@@ -217,24 +393,57 @@ func (h *ObjectHandler) HeadObject(w http.ResponseWriter, r *http.Request, bucke
 		return
 	}
 
-	if !h.engine.ObjectExists(bucket, key) {
-		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
-		return
-	}
+	versionID := r.URL.Query().Get("versionId")
 
-	size, err := h.engine.ObjectSize(bucket, key)
-	if err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
-		return
-	}
+	var meta *metadata.ObjectMeta
 
-	if meta, err := h.store.GetObjectMeta(bucket, key); err == nil {
-		w.Header().Set("Content-Type", meta.ContentType)
-		w.Header().Set("ETag", meta.ETag)
-		w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
+	if versionID != "" {
+		var err error
+		meta, err = h.store.GetObjectVersion(bucket, key, versionID)
+		if err != nil {
+			writeS3Error(w, "NoSuchVersion", "Version not found", http.StatusNotFound)
+			return
+		}
+		if meta.DeleteMarker {
+			w.Header().Set("X-Amz-Delete-Marker", "true")
+			w.Header().Set("X-Amz-Version-Id", versionID)
+			writeS3Error(w, "NoSuchKey", "Object is a delete marker", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("X-Amz-Version-Id", versionID)
 	} else {
-		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+		meta, _ = h.store.GetObjectMeta(bucket, key)
+		if meta != nil && meta.DeleteMarker {
+			w.Header().Set("X-Amz-Delete-Marker", "true")
+			if meta.VersionID != "" {
+				w.Header().Set("X-Amz-Version-Id", meta.VersionID)
+			}
+			writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+			return
+		}
+		if meta == nil {
+			if !h.engine.ObjectExists(bucket, key) {
+				writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+				return
+			}
+			size, err := h.engine.ObjectSize(bucket, key)
+			if err != nil {
+				writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+			w.Header().Set("Accept-Ranges", "bytes")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if meta.VersionID != "" {
+			w.Header().Set("X-Amz-Version-Id", meta.VersionID)
+		}
 	}
+
+	w.Header().Set("Content-Type", meta.ContentType)
+	w.Header().Set("ETag", meta.ETag)
+	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
 	w.Header().Set("Accept-Ranges", "bytes")
 	if h.encryptionEnabled {
 		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
@@ -441,6 +650,92 @@ func (h *ObjectHandler) DeleteObjectTagging(w http.ResponseWriter, r *http.Reque
 	meta.Tags = nil
 	h.store.PutObjectMeta(*meta)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListObjectVersions handles GET /{bucket}?versions.
+func (h *ObjectHandler) ListObjectVersions(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	prefix := r.URL.Query().Get("prefix")
+	keyMarker := r.URL.Query().Get("key-marker")
+	versionMarker := r.URL.Query().Get("version-id-marker")
+	maxKeysStr := r.URL.Query().Get("max-keys")
+	maxKeys := 1000
+	if maxKeysStr != "" {
+		if mk, err := strconv.Atoi(maxKeysStr); err == nil && mk > 0 {
+			maxKeys = mk
+		}
+	}
+
+	versions, truncated, err := h.store.ListObjectVersions(bucket, prefix, keyMarker, versionMarker, maxKeys)
+	if err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type xmlVersion struct {
+		Key          string `xml:"Key"`
+		VersionId    string `xml:"VersionId"`
+		IsLatest     bool   `xml:"IsLatest"`
+		LastModified string `xml:"LastModified"`
+		ETag         string `xml:"ETag,omitempty"`
+		Size         int64  `xml:"Size"`
+		StorageClass string `xml:"StorageClass,omitempty"`
+	}
+	type xmlDeleteMarker struct {
+		Key          string `xml:"Key"`
+		VersionId    string `xml:"VersionId"`
+		IsLatest     bool   `xml:"IsLatest"`
+		LastModified string `xml:"LastModified"`
+	}
+	type xmlListVersionsResult struct {
+		XMLName         xml.Name          `xml:"ListVersionsResult"`
+		Xmlns           string            `xml:"xmlns,attr"`
+		Name            string            `xml:"Name"`
+		Prefix          string            `xml:"Prefix,omitempty"`
+		KeyMarker       string            `xml:"KeyMarker"`
+		VersionIdMarker string            `xml:"VersionIdMarker"`
+		MaxKeys         int               `xml:"MaxKeys"`
+		IsTruncated     bool              `xml:"IsTruncated"`
+		Versions        []xmlVersion      `xml:"Version,omitempty"`
+		DeleteMarkers   []xmlDeleteMarker `xml:"DeleteMarker,omitempty"`
+	}
+
+	resp := xmlListVersionsResult{
+		Xmlns:           "http://s3.amazonaws.com/doc/2006-03-01/",
+		Name:            bucket,
+		Prefix:          prefix,
+		KeyMarker:       keyMarker,
+		VersionIdMarker: versionMarker,
+		MaxKeys:         maxKeys,
+		IsTruncated:     truncated,
+	}
+
+	for _, v := range versions {
+		if v.DeleteMarker {
+			resp.DeleteMarkers = append(resp.DeleteMarkers, xmlDeleteMarker{
+				Key:          v.Key,
+				VersionId:    v.VersionID,
+				IsLatest:     v.IsLatest,
+				LastModified: time.Unix(v.LastModified, 0).UTC().Format(time.RFC3339),
+			})
+		} else {
+			resp.Versions = append(resp.Versions, xmlVersion{
+				Key:          v.Key,
+				VersionId:    v.VersionID,
+				IsLatest:     v.IsLatest,
+				LastModified: time.Unix(v.LastModified, 0).UTC().Format(time.RFC3339),
+				ETag:         v.ETag,
+				Size:         v.Size,
+				StorageClass: "STANDARD",
+			})
+		}
+	}
+
+	writeXML(w, http.StatusOK, resp)
 }
 
 // ListObjects handles GET /{bucket}?list-type=2.
