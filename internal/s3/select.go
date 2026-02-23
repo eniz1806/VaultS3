@@ -38,11 +38,23 @@ func (h *ObjectHandler) SelectObjectContent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Read the object
-	reader, _, err := h.engine.GetObject(bucket, key)
-	if err != nil {
-		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
-		return
+	// Read the object (handle versioned storage)
+	var reader io.ReadCloser
+	meta, _ := h.store.GetObjectMeta(bucket, key)
+	if meta != nil && meta.VersionID != "" {
+		r, _, err := h.engine.GetObjectVersion(bucket, key, meta.VersionID)
+		if err != nil {
+			writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+			return
+		}
+		reader = r
+	} else {
+		r, _, err := h.engine.GetObject(bucket, key)
+		if err != nil {
+			writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+			return
+		}
+		reader = r
 	}
 	defer reader.Close()
 

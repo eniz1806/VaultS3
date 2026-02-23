@@ -21,6 +21,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Copy object** — Same-bucket and cross-bucket copies
 - **Batch delete** — Multi-object delete with XML body
 - **Virtual-hosted style URLs** — `bucket.domain/key` in addition to path-style
+- **Bucket default retention** — Set default GOVERNANCE or COMPLIANCE retention on a bucket, auto-applied to new objects
+- **Per-bucket Prometheus metrics** — Request counts, bytes in/out, and errors with bucket labels at `/metrics`
 - **Prometheus metrics** — `/metrics` endpoint with storage, request, and runtime stats
 - **Presigned URLs** — Pre-authenticated URL generation
 - **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, file browser, access key management, activity log, storage stats, dark/light theme, responsive layout
@@ -76,6 +78,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | List Object Versions | `GET /{bucket}?versions` | Done |
 | Object Locking (Legal Hold) | `PUT/GET /{bucket}/{key}?legal-hold` | Done |
 | Object Locking (Retention) | `PUT/GET /{bucket}/{key}?retention` | Done |
+| Bucket Default Retention | `PUT/GET /{bucket}?object-lock` | Done |
 | Lifecycle Rules | `PUT/GET/DELETE /{bucket}?lifecycle` | Done |
 | Website Hosting | `PUT/GET/DELETE /{bucket}?website` | Done |
 | Bucket CORS | `PUT/GET/DELETE /{bucket}?cors` | Done |
@@ -193,7 +196,7 @@ Access metrics at `GET /metrics`:
 curl http://localhost:9000/metrics
 ```
 
-Exposes: request counts by method, bytes in/out, per-bucket storage size and object counts, quota usage, Go runtime stats (goroutines, memory, GC).
+Exposes: request counts by method, bytes in/out, per-bucket storage size and object counts, per-bucket request/bytes/error counters, quota usage, Go runtime stats (goroutines, memory, GC).
 
 ### Web Dashboard
 
@@ -807,6 +810,54 @@ Supported SQL features:
 Input formats: CSV (with/without headers, custom delimiters), JSON Lines, JSON Document (array).
 Output formats: JSON (one object per line) or CSV.
 
+### Bucket Default Retention
+
+Set default object retention on a versioned bucket — all new objects automatically inherit the retention policy:
+
+```python
+from botocore.auth import SigV4Auth
+from botocore.credentials import Credentials
+from botocore.awsrequest import AWSRequest
+import requests
+
+# Set default retention (requires versioning enabled)
+url = "http://localhost:9000/my-bucket?object-lock"
+body = b"""<?xml version="1.0" encoding="UTF-8"?>
+<ObjectLockConfiguration>
+  <Rule>
+    <DefaultRetention>
+      <Mode>GOVERNANCE</Mode>
+      <Days>30</Days>
+    </DefaultRetention>
+  </Rule>
+</ObjectLockConfiguration>"""
+
+creds = Credentials("vaults3-admin", "vaults3-secret-change-me")
+req = AWSRequest(method="PUT", url=url, data=body, headers={"Content-Type": "application/xml"})
+SigV4Auth(creds, "s3", "us-east-1").add_auth(req)
+requests.put(url, headers=dict(req.headers), data=body)
+
+# All new objects now get 30-day GOVERNANCE retention automatically
+s3.put_object(Bucket='my-bucket', Key='file.txt', Body=b'protected')
+# file.txt cannot be deleted for 30 days
+```
+
+Modes: `GOVERNANCE` (admin can bypass with special header) or `COMPLIANCE` (nobody can shorten/remove until expiry). Requires versioning to be enabled on the bucket.
+
+### Per-Bucket Prometheus Metrics
+
+The `/metrics` endpoint includes per-bucket counters (limited to top 100 buckets):
+
+```
+vaults3_bucket_requests_total{bucket="my-bucket",method="PUT"} 42
+vaults3_bucket_requests_total{bucket="my-bucket",method="GET"} 156
+vaults3_bucket_bytes_in_total{bucket="my-bucket"} 10485760
+vaults3_bucket_bytes_out_total{bucket="my-bucket"} 52428800
+vaults3_bucket_errors_total{bucket="my-bucket"} 3
+```
+
+These complement the existing global metrics and per-bucket storage metrics, enabling monitoring and alerting per bucket.
+
 ### Rate Limiting
 
 Protect against abuse and DDoS with token bucket rate limiting:
@@ -931,3 +982,5 @@ VaultS3/
 - [x] UploadPartCopy (copy byte ranges from existing objects as multipart parts)
 - [x] S3 Select (SQL queries on CSV and JSON objects, SELECT/WHERE/LIMIT/LIKE/AND/OR)
 - [x] Multi-backend notifications (Kafka, NATS, Redis pub/sub and queue backends)
+- [x] Bucket default retention (auto-apply GOVERNANCE/COMPLIANCE retention to new objects)
+- [x] Per-bucket Prometheus metrics (request counts, bytes in/out, errors by bucket label)

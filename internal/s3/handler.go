@@ -126,6 +126,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.ContentLength > 0 {
 			h.metrics.RecordBytesIn(r.ContentLength)
 		}
+		if bucket != "" {
+			h.metrics.RecordBucketRequest(bucket, r.Method)
+			if r.ContentLength > 0 {
+				h.metrics.RecordBucketBytesIn(bucket, r.ContentLength)
+			}
+		}
 	}
 
 	// Wrap writer to capture status code for activity log
@@ -348,6 +354,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodGet {
 				h.objects.ListObjectVersions(w, r, bucket)
 			} else {
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Object Lock (default retention) operations
+		if _, ok := bq["object-lock"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.objects.PutBucketObjectLockConfig(w, r, bucket)
+			case http.MethodGet:
+				h.objects.GetBucketObjectLockConfig(w, r, bucket)
+			default:
 				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
 			}
 			return

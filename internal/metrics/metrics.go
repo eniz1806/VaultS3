@@ -4,12 +4,22 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
+
+// bucketMetrics holds per-bucket request counters.
+type bucketMetrics struct {
+	requests [methodCount]atomic.Int64
+	bytesIn  atomic.Int64
+	bytesOut atomic.Int64
+	errors   atomic.Int64
+}
 
 // Collector tracks request metrics and exposes Prometheus-compatible /metrics.
 type Collector struct {
@@ -22,6 +32,10 @@ type Collector struct {
 	bytesIn         atomic.Int64
 	bytesOut        atomic.Int64
 	startTime       time.Time
+
+	// Per-bucket metrics
+	bucketMu      sync.RWMutex
+	bucketMetrics map[string]*bucketMetrics
 }
 
 // HTTP method indices for counter array
@@ -71,11 +85,14 @@ func methodLabel(idx int) string {
 
 func NewCollector(store *metadata.Store, engine storage.Engine) *Collector {
 	return &Collector{
-		store:     store,
-		engine:    engine,
-		startTime: time.Now(),
+		store:         store,
+		engine:        engine,
+		startTime:     time.Now(),
+		bucketMetrics: make(map[string]*bucketMetrics),
 	}
 }
+
+const maxBucketMetrics = 100
 
 // StartTime returns when the collector was created (server start time).
 func (c *Collector) StartTime() time.Time {
@@ -100,6 +117,58 @@ func (c *Collector) RecordBytesIn(n int64) {
 // RecordBytesOut adds to the egress byte counter.
 func (c *Collector) RecordBytesOut(n int64) {
 	c.bytesOut.Add(n)
+}
+
+// getBucketMetrics returns the per-bucket metrics entry, creating it if needed.
+func (c *Collector) getBucketMetrics(bucket string) *bucketMetrics {
+	c.bucketMu.RLock()
+	bm, ok := c.bucketMetrics[bucket]
+	c.bucketMu.RUnlock()
+	if ok {
+		return bm
+	}
+
+	c.bucketMu.Lock()
+	defer c.bucketMu.Unlock()
+	// Double-check after acquiring write lock
+	if bm, ok = c.bucketMetrics[bucket]; ok {
+		return bm
+	}
+	// Limit to prevent label explosion
+	if len(c.bucketMetrics) >= maxBucketMetrics {
+		return nil
+	}
+	bm = &bucketMetrics{}
+	c.bucketMetrics[bucket] = bm
+	return bm
+}
+
+// RecordBucketRequest records a request for a specific bucket.
+func (c *Collector) RecordBucketRequest(bucket, method string) {
+	if bm := c.getBucketMetrics(bucket); bm != nil {
+		bm.requests[methodIndex(method)].Add(1)
+	}
+}
+
+// RecordBucketBytesIn records bytes uploaded to a specific bucket.
+func (c *Collector) RecordBucketBytesIn(bucket string, n int64) {
+	if bm := c.getBucketMetrics(bucket); bm != nil {
+		bm.bytesIn.Add(n)
+	}
+}
+
+// RecordBucketBytesOut records bytes downloaded from a specific bucket.
+func (c *Collector) RecordBucketBytesOut(bucket string, n int64) {
+	if bm := c.getBucketMetrics(bucket); bm != nil {
+		bm.bytesOut.Add(n)
+	}
+}
+
+// RecordBucketError records an error for a specific bucket.
+func (c *Collector) RecordBucketError(bucket string) {
+	if bm := c.getBucketMetrics(bucket); bm != nil {
+		bm.errors.Add(1)
+	}
 }
 
 // ServeHTTP handles GET /metrics in Prometheus exposition format.
@@ -145,6 +214,38 @@ func (c *Collector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, "vaults3_storage_size_bytes_total %d\n", totalSize)
 		fmt.Fprintf(w, "vaults3_objects_total %d\n", totalObjects)
+	}
+
+	// Per-bucket request metrics
+	c.bucketMu.RLock()
+	bucketNames := make([]string, 0, len(c.bucketMetrics))
+	for name := range c.bucketMetrics {
+		bucketNames = append(bucketNames, name)
+	}
+	c.bucketMu.RUnlock()
+	sort.Strings(bucketNames)
+	for _, name := range bucketNames {
+		c.bucketMu.RLock()
+		bm := c.bucketMetrics[name]
+		c.bucketMu.RUnlock()
+		if bm == nil {
+			continue
+		}
+		for i := 0; i < methodCount; i++ {
+			v := bm.requests[i].Load()
+			if v > 0 {
+				fmt.Fprintf(w, "vaults3_bucket_requests_total{bucket=%q,method=%q} %d\n", name, methodLabel(i), v)
+			}
+		}
+		if v := bm.bytesIn.Load(); v > 0 {
+			fmt.Fprintf(w, "vaults3_bucket_bytes_in_total{bucket=%q} %d\n", name, v)
+		}
+		if v := bm.bytesOut.Load(); v > 0 {
+			fmt.Fprintf(w, "vaults3_bucket_bytes_out_total{bucket=%q} %d\n", name, v)
+		}
+		if v := bm.errors.Load(); v > 0 {
+			fmt.Fprintf(w, "vaults3_bucket_errors_total{bucket=%q} %d\n", name, v)
+		}
 	}
 
 	// Go runtime metrics

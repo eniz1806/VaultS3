@@ -112,6 +112,14 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 			IsLatest:     true,
 		}
 
+		// Apply bucket default retention if configured
+		if bucketInfo, err := h.store.GetBucket(bucket); err == nil {
+			if bucketInfo.DefaultRetentionMode != "" && bucketInfo.DefaultRetentionDays > 0 {
+				meta.RetentionMode = bucketInfo.DefaultRetentionMode
+				meta.RetentionUntil = now.Unix() + int64(bucketInfo.DefaultRetentionDays*86400)
+			}
+		}
+
 		h.store.PutObjectVersion(meta)
 		h.store.PutObjectMeta(meta) // update "latest pointer"
 
