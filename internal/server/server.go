@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/eniz1806/VaultS3/internal/api"
 	"github.com/eniz1806/VaultS3/internal/config"
@@ -17,11 +18,12 @@ import (
 )
 
 type Server struct {
-	cfg     *config.Config
-	store   *metadata.Store
-	engine  storage.Engine
-	s3h     *s3.Handler
-	metrics *metrics.Collector
+	cfg      *config.Config
+	store    *metadata.Store
+	engine   storage.Engine
+	s3h      *s3.Handler
+	metrics  *metrics.Collector
+	activity *api.ActivityLog
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -63,15 +65,32 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize metrics collector
 	mc := metrics.NewCollector(store, engine)
 
+	// Initialize activity log
+	activityLog := api.NewActivityLog()
+
 	// Initialize S3 handler
 	s3h := s3.NewHandler(store, engine, auth, cfg.Encryption.Enabled, cfg.Server.Domain, mc)
 
+	// Wire activity recording from S3 handler to activity log
+	s3h.SetActivityFunc(func(method, bucket, key string, status int, size int64, clientIP string) {
+		activityLog.Record(api.ActivityEntry{
+			Time:     time.Now().UTC(),
+			Method:   method,
+			Bucket:   bucket,
+			Key:      key,
+			Status:   status,
+			Size:     size,
+			ClientIP: clientIP,
+		})
+	})
+
 	return &Server{
-		cfg:     cfg,
-		store:   store,
-		engine:  engine,
-		s3h:     s3h,
-		metrics: mc,
+		cfg:      cfg,
+		store:    store,
+		engine:   engine,
+		s3h:      s3h,
+		metrics:  mc,
+		activity: activityLog,
 	}, nil
 }
 
@@ -79,7 +98,7 @@ func (s *Server) Start() error {
 	addr := s.cfg.ListenAddr()
 
 	// Dashboard API
-	apiHandler := api.NewAPIHandler(s.store, s.engine, s.metrics, s.cfg)
+	apiHandler := api.NewAPIHandler(s.store, s.engine, s.metrics, s.cfg, s.activity)
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/", apiHandler)

@@ -3,23 +3,41 @@ import { NavLink } from 'react-router-dom'
 const navItems = [
   { to: '/buckets', label: 'Buckets', icon: bucketIcon },
   { to: '/access-keys', label: 'Access Keys', icon: keyIcon },
+  { to: '/activity', label: 'Activity', icon: activityIcon },
   { to: '/stats', label: 'Stats', icon: statsIcon },
 ]
 
-export default function Sidebar() {
+interface Props {
+  onClose?: () => void
+}
+
+export default function Sidebar({ onClose }: Props) {
   return (
-    <aside className="w-56 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-          VaultS3
-        </h1>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Object Storage</p>
+    <aside className="w-56 h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white tracking-tight">
+            VaultS3
+          </h1>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Object Storage</p>
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="md:hidden p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
       <nav className="flex-1 p-3 space-y-1">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
+            onClick={onClose}
             className={({ isActive }) =>
               `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 isActive
@@ -49,6 +67,14 @@ function keyIcon() {
   return (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+    </svg>
+  )
+}
+
+function activityIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   )
 }

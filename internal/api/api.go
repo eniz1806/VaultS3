@@ -12,20 +12,22 @@ import (
 
 // APIHandler serves the dashboard REST API at /api/v1/.
 type APIHandler struct {
-	store   *metadata.Store
-	engine  storage.Engine
-	metrics *metrics.Collector
-	cfg     *config.Config
-	jwt     *JWTService
+	store    *metadata.Store
+	engine   storage.Engine
+	metrics  *metrics.Collector
+	cfg      *config.Config
+	jwt      *JWTService
+	activity *ActivityLog
 }
 
-func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Collector, cfg *config.Config) *APIHandler {
+func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Collector, cfg *config.Config, activity *ActivityLog) *APIHandler {
 	return &APIHandler{
-		store:   store,
-		engine:  engine,
-		metrics: mc,
-		cfg:     cfg,
-		jwt:     NewJWTService(cfg.Auth.AdminSecretKey),
+		store:    store,
+		engine:   engine,
+		metrics:  mc,
+		cfg:      cfg,
+		jwt:      NewJWTService(cfg.Auth.AdminSecretKey),
+		activity: activity,
 	}
 }
 
@@ -83,6 +85,10 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Stats route
 	case path == "/stats" && r.Method == http.MethodGet:
 		h.handleStats(w, r)
+
+	// Activity log route
+	case path == "/activity" && r.Method == http.MethodGet:
+		h.handleActivity(w, r)
 
 	default:
 		writeError(w, http.StatusNotFound, "not found")

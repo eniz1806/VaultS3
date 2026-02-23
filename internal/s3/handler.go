@@ -10,6 +10,9 @@ import (
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
 
+// ActivityFunc is a callback for recording S3 activity.
+type ActivityFunc func(method, bucket, key string, status int, size int64, clientIP string)
+
 // Handler routes incoming S3 API requests to the appropriate handler.
 type Handler struct {
 	store             *metadata.Store
@@ -20,6 +23,7 @@ type Handler struct {
 	encryptionEnabled bool
 	domain            string // base domain for virtual-hosted style URLs
 	metrics           *metrics.Collector
+	onActivity        ActivityFunc
 }
 
 func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
@@ -36,6 +40,22 @@ func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticato
 	return h
 }
 
+// SetActivityFunc sets the callback for recording S3 activity.
+func (h *Handler) SetActivityFunc(fn ActivityFunc) {
+	h.onActivity = fn
+}
+
+// statusWriter wraps ResponseWriter to capture the status code.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sw *statusWriter) WriteHeader(code int) {
+	sw.status = code
+	sw.ResponseWriter.WriteHeader(code)
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse bucket and key — support both path-style and virtual-hosted style
 	path := strings.TrimPrefix(r.URL.Path, "/")
@@ -50,6 +70,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.metrics.RecordBytesIn(r.ContentLength)
 		}
 	}
+
+	// Wrap writer to capture status code for activity log
+	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+	w = sw
+	defer func() {
+		if h.onActivity != nil && bucket != "" {
+			clientIP := r.RemoteAddr
+			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+				clientIP = strings.SplitN(fwd, ",", 2)[0]
+			}
+			h.onActivity(r.Method, bucket, key, sw.status, r.ContentLength, strings.TrimSpace(clientIP))
+		}
+	}()
 
 	// Check for public-read policy bypass on GET/HEAD object requests
 	authRequired := true
