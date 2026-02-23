@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -14,6 +15,7 @@ type keyListItem struct {
 	MaskedSecret string `json:"maskedSecret"`
 	CreatedAt    string `json:"createdAt"`
 	IsAdmin      bool   `json:"isAdmin"`
+	UserID       string `json:"userId,omitempty"`
 }
 
 type keyCreateResponse struct {
@@ -44,13 +46,19 @@ func (h *APIHandler) handleListKeys(w http.ResponseWriter, _ *http.Request) {
 			AccessKey:    k.AccessKey,
 			MaskedSecret: maskSecret(k.SecretKey),
 			CreatedAt:    k.CreatedAt.Format(time.RFC3339),
+			UserID:       k.UserID,
 		})
 	}
 
 	writeJSON(w, http.StatusOK, items)
 }
 
-func (h *APIHandler) handleCreateKey(w http.ResponseWriter, _ *http.Request) {
+func (h *APIHandler) handleCreateKey(w http.ResponseWriter, r *http.Request) {
+	var reqBody struct {
+		UserID string `json:"userId"`
+	}
+	json.NewDecoder(r.Body).Decode(&reqBody)
+
 	accessKey, err := randomHex(10) // 20 hex chars
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate access key")
@@ -68,6 +76,7 @@ func (h *APIHandler) handleCreateKey(w http.ResponseWriter, _ *http.Request) {
 		AccessKey: accessKey,
 		SecretKey: secretKey,
 		CreatedAt: now,
+		UserID:    reqBody.UserID,
 	}
 
 	if err := h.store.CreateAccessKey(key); err != nil {

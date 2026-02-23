@@ -82,6 +82,35 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accessKey := strings.TrimPrefix(path, "/keys/")
 		h.handleDeleteKey(w, r, accessKey)
 
+	// IAM User routes
+	case path == "/iam/users" && r.Method == http.MethodGet:
+		h.handleListIAMUsers(w, r)
+	case path == "/iam/users" && r.Method == http.MethodPost:
+		h.handleCreateIAMUser(w, r)
+	case strings.HasPrefix(path, "/iam/users/"):
+		h.routeIAMUser(w, r, strings.TrimPrefix(path, "/iam/users/"))
+
+	// IAM Group routes
+	case path == "/iam/groups" && r.Method == http.MethodGet:
+		h.handleListIAMGroups(w, r)
+	case path == "/iam/groups" && r.Method == http.MethodPost:
+		h.handleCreateIAMGroup(w, r)
+	case strings.HasPrefix(path, "/iam/groups/"):
+		h.routeIAMGroup(w, r, strings.TrimPrefix(path, "/iam/groups/"))
+
+	// IAM Policy routes
+	case path == "/iam/policies" && r.Method == http.MethodGet:
+		h.handleListIAMPolicies(w, r)
+	case path == "/iam/policies" && r.Method == http.MethodPost:
+		h.handleCreateIAMPolicy(w, r)
+	case strings.HasPrefix(path, "/iam/policies/"):
+		policyName := strings.TrimPrefix(path, "/iam/policies/")
+		if r.Method == http.MethodDelete {
+			h.handleDeleteIAMPolicy(w, r, policyName)
+		} else {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+
 	// Stats route
 	case path == "/stats" && r.Method == http.MethodGet:
 		h.handleStats(w, r)
@@ -90,6 +119,64 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/activity" && r.Method == http.MethodGet:
 		h.handleActivity(w, r)
 
+	default:
+		writeError(w, http.StatusNotFound, "not found")
+	}
+}
+
+func (h *APIHandler) routeIAMUser(w http.ResponseWriter, r *http.Request, rest string) {
+	parts := strings.SplitN(rest, "/", 2)
+	userName := parts[0]
+
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodGet:
+			h.handleGetIAMUser(w, r, userName)
+		case http.MethodDelete:
+			h.handleDeleteIAMUser(w, r, userName)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
+
+	sub := parts[1]
+	switch {
+	case sub == "policies" && r.Method == http.MethodPost:
+		h.handleAttachUserPolicy(w, r, userName)
+	case strings.HasPrefix(sub, "policies/") && r.Method == http.MethodDelete:
+		policyName := strings.TrimPrefix(sub, "policies/")
+		h.handleDetachUserPolicy(w, r, userName, policyName)
+	case sub == "groups" && r.Method == http.MethodPost:
+		h.handleAddUserToGroup(w, r, userName)
+	case strings.HasPrefix(sub, "groups/") && r.Method == http.MethodDelete:
+		groupName := strings.TrimPrefix(sub, "groups/")
+		h.handleRemoveUserFromGroup(w, r, userName, groupName)
+	default:
+		writeError(w, http.StatusNotFound, "not found")
+	}
+}
+
+func (h *APIHandler) routeIAMGroup(w http.ResponseWriter, r *http.Request, rest string) {
+	parts := strings.SplitN(rest, "/", 2)
+	groupName := parts[0]
+
+	if len(parts) == 1 {
+		if r.Method == http.MethodDelete {
+			h.handleDeleteIAMGroup(w, r, groupName)
+		} else {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
+
+	sub := parts[1]
+	switch {
+	case sub == "policies" && r.Method == http.MethodPost:
+		h.handleAttachGroupPolicy(w, r, groupName)
+	case strings.HasPrefix(sub, "policies/") && r.Method == http.MethodDelete:
+		policyName := strings.TrimPrefix(sub, "policies/")
+		h.handleDetachGroupPolicy(w, r, groupName, policyName)
 	default:
 		writeError(w, http.StatusNotFound, "not found")
 	}

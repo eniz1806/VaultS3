@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -84,6 +85,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Handle CORS preflight
+	if r.Method == http.MethodOptions && bucket != "" {
+		h.handleCORSPreflight(w, r, bucket)
+		return
+	}
+
+	// Add CORS response headers if configured
+	if bucket != "" {
+		h.addCORSHeaders(w, r, bucket)
+	}
+
 	// Check for public-read policy bypass on GET/HEAD object requests
 	authRequired := true
 	if bucket != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
@@ -95,11 +107,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Authenticate
+	// Authenticate and authorize
 	if authRequired {
-		if err := h.auth.Authenticate(r); err != nil {
+		identity, err := h.auth.Authenticate(r)
+		if err != nil {
 			writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
 			return
+		}
+
+		// Authorize non-admin identities
+		if !identity.IsAdmin {
+			action := mapMethodToAction(r.Method, bucket, key, r.URL.Query())
+			resource := formatResource(bucket, key)
+			if err := h.auth.Authorize(identity, action, resource); err != nil {
+				writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
+				return
+			}
 		}
 	}
 
@@ -136,6 +159,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.buckets.GetBucketPolicy(w, r, bucket)
 			case http.MethodDelete:
 				h.buckets.DeleteBucketPolicy(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// CORS operations
+		if _, ok := bq["cors"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketCORS(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketCORS(w, r, bucket)
+			case http.MethodDelete:
+				h.buckets.DeleteBucketCORS(w, r, bucket)
 			default:
 				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
 			}
@@ -345,4 +383,127 @@ func parsePath(path string) (bucket, key string) {
 		key = parts[1]
 	}
 	return
+}
+
+// mapMethodToAction maps an HTTP method + context to an S3 IAM action.
+func mapMethodToAction(method, bucket, key string, query map[string][]string) string {
+	if key != "" {
+		switch method {
+		case http.MethodGet, http.MethodHead:
+			return "s3:GetObject"
+		case http.MethodPut:
+			return "s3:PutObject"
+		case http.MethodDelete:
+			return "s3:DeleteObject"
+		}
+	}
+
+	if bucket != "" && key == "" {
+		// Bucket-level operations
+		if _, ok := query["policy"]; ok {
+			if method == http.MethodPut {
+				return "s3:PutBucketPolicy"
+			}
+			return "s3:GetBucketPolicy"
+		}
+		switch method {
+		case http.MethodPut:
+			return "s3:CreateBucket"
+		case http.MethodDelete:
+			return "s3:DeleteBucket"
+		case http.MethodGet:
+			return "s3:ListBucket"
+		case http.MethodHead:
+			return "s3:ListBucket"
+		}
+	}
+
+	if bucket == "" && method == http.MethodGet {
+		return "s3:ListAllMyBuckets"
+	}
+
+	return "s3:*"
+}
+
+// formatResource creates an S3 ARN from bucket and key.
+func formatResource(bucket, key string) string {
+	if bucket == "" {
+		return "*"
+	}
+	if key == "" {
+		return "arn:aws:s3:::" + bucket
+	}
+	return "arn:aws:s3:::" + bucket + "/" + key
+}
+
+// handleCORSPreflight handles OPTIONS requests for CORS preflight.
+func (h *Handler) handleCORSPreflight(w http.ResponseWriter, r *http.Request, bucket string) {
+	cfg, err := h.store.GetCORSConfig(bucket)
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	origin := r.Header.Get("Origin")
+	requestMethod := r.Header.Get("Access-Control-Request-Method")
+
+	for _, rule := range cfg.Rules {
+		if !matchOrigin(rule.AllowedOrigins, origin) {
+			continue
+		}
+		if !matchMethod(rule.AllowedMethods, requestMethod) {
+			continue
+		}
+
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", strings.Join(rule.AllowedMethods, ", "))
+		if len(rule.AllowedHeaders) > 0 {
+			w.Header().Set("Access-Control-Allow-Headers", strings.Join(rule.AllowedHeaders, ", "))
+		}
+		if rule.MaxAgeSecs > 0 {
+			w.Header().Set("Access-Control-Max-Age", fmt.Sprintf("%d", rule.MaxAgeSecs))
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	w.WriteHeader(http.StatusForbidden)
+}
+
+// addCORSHeaders adds CORS response headers if a matching rule exists.
+func (h *Handler) addCORSHeaders(w http.ResponseWriter, r *http.Request, bucket string) {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return
+	}
+
+	cfg, err := h.store.GetCORSConfig(bucket)
+	if err != nil {
+		return
+	}
+
+	for _, rule := range cfg.Rules {
+		if matchOrigin(rule.AllowedOrigins, origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			return
+		}
+	}
+}
+
+func matchOrigin(allowed []string, origin string) bool {
+	for _, a := range allowed {
+		if a == "*" || a == origin {
+			return true
+		}
+	}
+	return false
+}
+
+func matchMethod(allowed []string, method string) bool {
+	for _, a := range allowed {
+		if strings.EqualFold(a, method) {
+			return true
+		}
+	}
+	return false
 }

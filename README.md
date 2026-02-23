@@ -31,6 +31,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Gzip compression** — Transparent compress-on-write, decompress-on-read with standard gzip
 - **Access logging** — Structured JSON lines log file of all S3 operations
 - **Static website hosting** — Serve index/error documents from buckets, no auth required
+- **IAM users, groups & policies** — Fine-grained access control with S3-compatible policy evaluation, default deny, wildcard matching
+- **CORS per bucket** — S3-compatible CORS configuration with OPTIONS preflight support
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -59,8 +61,10 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Object Locking (Retention) | `PUT/GET /{bucket}/{key}?retention` | Done |
 | Lifecycle Rules | `PUT/GET/DELETE /{bucket}?lifecycle` | Done |
 | Website Hosting | `PUT/GET/DELETE /{bucket}?website` | Done |
+| Bucket CORS | `PUT/GET/DELETE /{bucket}?cors` | Done |
 | Presigned URLs | — | Done |
 | Metrics | `GET /metrics` | Done |
+| IAM (Users/Groups/Policies) | Dashboard API `/api/v1/iam/*` | Done |
 
 ## Quick Start
 
@@ -288,6 +292,68 @@ s3.put_bucket_website(Bucket='my-site',
 
 Website-enabled buckets serve `index.html` for directory paths and a custom error page for missing objects. No authentication required for GET/HEAD requests.
 
+### IAM (Users, Groups & Policies)
+
+Fine-grained access control with S3-compatible IAM policies:
+
+```python
+import requests, json
+
+API = "http://localhost:9000/api/v1"
+headers = {"Authorization": "Bearer <jwt-token>", "Content-Type": "application/json"}
+
+# Create an IAM user
+requests.post(f"{API}/iam/users", headers=headers, json={"name": "alice"})
+
+# Attach a built-in policy (ReadOnlyAccess, ReadWriteAccess, FullAccess)
+requests.post(f"{API}/iam/users/alice/policies", headers=headers,
+    json={"policyName": "ReadOnlyAccess"})
+
+# Create an access key for the user
+resp = requests.post(f"{API}/keys", headers=headers, json={"userId": "alice"})
+key = resp.json()  # {"accessKey": "...", "secretKey": "..."}
+
+# Create groups and attach policies
+requests.post(f"{API}/iam/groups", headers=headers, json={"name": "developers"})
+requests.post(f"{API}/iam/groups/developers/policies", headers=headers,
+    json={"policyName": "ReadWriteAccess"})
+
+# Add user to group
+requests.post(f"{API}/iam/users/alice/groups", headers=headers,
+    json={"groupName": "developers"})
+
+# Create custom policies
+custom_policy = json.dumps({
+    "Version": "2012-10-17",
+    "Statement": [{
+        "Effect": "Allow",
+        "Action": ["s3:GetObject"],
+        "Resource": ["arn:aws:s3:::my-bucket/*"]
+    }]
+})
+requests.post(f"{API}/iam/policies", headers=headers,
+    json={"name": "MyBucketReadOnly", "document": custom_policy})
+```
+
+Policy evaluation follows AWS IAM semantics: default deny, explicit Allow required, explicit Deny always wins. Admin keys and legacy keys (without a user) retain full access.
+
+### CORS per Bucket
+
+Configure Cross-Origin Resource Sharing on a per-bucket basis:
+
+```python
+s3.put_bucket_cors(Bucket='my-bucket', CORSConfiguration={
+    'CORSRules': [{
+        'AllowedOrigins': ['https://example.com'],
+        'AllowedMethods': ['GET', 'PUT'],
+        'AllowedHeaders': ['*'],
+        'MaxAgeSeconds': 3600,
+    }]
+})
+```
+
+The server responds to `OPTIONS` preflight requests with the configured CORS headers. Unknown origins are rejected with 403.
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -310,7 +376,8 @@ VaultS3/
 │   ├── storage/               — Storage engine interface + filesystem + encryption
 │   ├── metadata/              — BoltDB metadata store
 │   ├── metrics/               — Prometheus-compatible metrics collector
-│   ├── api/                   — Dashboard REST API (JWT auth)
+│   ├── iam/                   — IAM policy engine (users, groups, policies)
+│   ├── api/                   — Dashboard REST API (JWT auth, IAM management)
 │   └── dashboard/             — Embedded React SPA
 ├── web/                       — React dashboard source (Vite + Tailwind)
 ├── configs/vaults3.yaml       — Default configuration
@@ -362,4 +429,7 @@ VaultS3/
 - [x] Gzip compression (transparent compress/decompress)
 - [x] Access logging (structured JSON lines)
 - [x] Static website hosting (index/error documents, no-auth serving)
+- [x] IAM users, groups & policies (fine-grained access control, policy evaluation engine, built-in policies)
+- [x] CORS per bucket (S3-compatible, OPTIONS preflight)
+- [ ] STS temporary credentials
 - [ ] Replication

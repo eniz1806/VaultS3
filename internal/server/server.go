@@ -120,6 +120,9 @@ func New(cfg *config.Config) (*Server, error) {
 		}
 	})
 
+	// Initialize built-in IAM policies
+	initBuiltinPolicies(store)
+
 	return &Server{
 		cfg:       cfg,
 		store:     store,
@@ -213,6 +216,29 @@ func (s *Server) Run() error {
 
 	log.Println("Server stopped gracefully")
 	return nil
+}
+
+func initBuiltinPolicies(store *metadata.Store) {
+	builtins := []metadata.IAMPolicy{
+		{
+			Name:     "ReadOnlyAccess",
+			Document: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket","s3:ListAllMyBuckets","s3:GetBucketPolicy"],"Resource":["*"]}]}`,
+		},
+		{
+			Name:     "ReadWriteAccess",
+			Document: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:ListBucket","s3:ListAllMyBuckets"],"Resource":["*"]}]}`,
+		},
+		{
+			Name:     "FullAccess",
+			Document: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["*"]}]}`,
+		},
+	}
+
+	for _, p := range builtins {
+		p.CreatedAt = time.Now().UTC()
+		// Use CreateIAMPolicy which is a no-op if already exists
+		store.CreateIAMPolicy(p)
+	}
 }
 
 func (s *Server) Close() {

@@ -4,12 +4,14 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/eniz1806/VaultS3/internal/iam"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 )
 
@@ -28,37 +30,60 @@ func NewAuthenticator(accessKey, secretKey string, store *metadata.Store) *Authe
 	}
 }
 
-// resolveSecret looks up the secret key for a given access key.
-// Checks admin credentials first, then metadata store.
-func (a *Authenticator) resolveSecret(accessKey string) (string, error) {
+// resolveIdentity looks up the identity for a given access key.
+// Returns the identity with user info and policies.
+func (a *Authenticator) resolveIdentity(accessKey string) (*iam.Identity, string, error) {
 	if accessKey == a.adminAccessKey {
-		return a.adminSecretKey, nil
+		return &iam.Identity{
+			AccessKey: accessKey,
+			IsAdmin:   true,
+		}, a.adminSecretKey, nil
 	}
 	if a.store != nil {
 		if key, err := a.store.GetAccessKey(accessKey); err == nil {
-			return key.SecretKey, nil
+			identity := &iam.Identity{
+				AccessKey: accessKey,
+				UserID:    key.UserID,
+			}
+			// Load policies if linked to a user
+			if key.UserID != "" {
+				iamPolicies, err := a.store.GetUserPolicies(key.UserID)
+				if err == nil {
+					for _, p := range iamPolicies {
+						var pol iam.Policy
+						if err := json.Unmarshal([]byte(p.Document), &pol); err == nil {
+							identity.Policies = append(identity.Policies, pol)
+						}
+					}
+				}
+			} else {
+				// Legacy keys without a user get full access
+				identity.IsAdmin = true
+			}
+			return identity, key.SecretKey, nil
 		}
 	}
-	return "", fmt.Errorf("invalid access key")
+	return nil, "", fmt.Errorf("invalid access key")
 }
 
 // Authenticate validates the Authorization header using AWS Signature V4.
-func (a *Authenticator) Authenticate(r *http.Request) error {
+// Returns the identity of the caller.
+func (a *Authenticator) Authenticate(r *http.Request) (*iam.Identity, error) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		if r.URL.Query().Get("X-Amz-Signature") != "" {
 			return a.authenticatePresigned(r)
 		}
-		return fmt.Errorf("missing Authorization header")
+		return nil, fmt.Errorf("missing Authorization header")
 	}
 
 	if !strings.HasPrefix(authHeader, "AWS4-HMAC-SHA256") {
-		return fmt.Errorf("unsupported auth scheme")
+		return nil, fmt.Errorf("unsupported auth scheme")
 	}
 
 	parts := strings.SplitN(authHeader, " ", 2)
 	if len(parts) != 2 {
-		return fmt.Errorf("malformed auth header")
+		return nil, fmt.Errorf("malformed auth header")
 	}
 
 	params := parseAuthParams(parts[1])
@@ -67,12 +92,12 @@ func (a *Authenticator) Authenticate(r *http.Request) error {
 	signature := params["Signature"]
 
 	if credential == "" || signedHeaders == "" || signature == "" {
-		return fmt.Errorf("missing auth parameters")
+		return nil, fmt.Errorf("missing auth parameters")
 	}
 
 	credParts := strings.Split(credential, "/")
 	if len(credParts) != 5 {
-		return fmt.Errorf("malformed credential")
+		return nil, fmt.Errorf("malformed credential")
 	}
 
 	reqAccessKey := credParts[0]
@@ -80,9 +105,9 @@ func (a *Authenticator) Authenticate(r *http.Request) error {
 	region := credParts[2]
 	service := credParts[3]
 
-	secretKey, err := a.resolveSecret(reqAccessKey)
+	identity, secretKey, err := a.resolveIdentity(reqAccessKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	canonicalRequest := buildCanonicalRequest(r, signedHeaders)
@@ -91,13 +116,13 @@ func (a *Authenticator) Authenticate(r *http.Request) error {
 	expectedSig := hex.EncodeToString(hmacSHA256(signingKey, []byte(stringToSign)))
 
 	if !hmac.Equal([]byte(signature), []byte(expectedSig)) {
-		return fmt.Errorf("signature mismatch")
+		return nil, fmt.Errorf("signature mismatch")
 	}
 
-	return nil
+	return identity, nil
 }
 
-func (a *Authenticator) authenticatePresigned(r *http.Request) error {
+func (a *Authenticator) authenticatePresigned(r *http.Request) (*iam.Identity, error) {
 	q := r.URL.Query()
 	credential := q.Get("X-Amz-Credential")
 	signature := q.Get("X-Amz-Signature")
@@ -106,29 +131,41 @@ func (a *Authenticator) authenticatePresigned(r *http.Request) error {
 	expires := q.Get("X-Amz-Expires")
 
 	if credential == "" || signature == "" || dateStr == "" {
-		return fmt.Errorf("missing presigned parameters")
+		return nil, fmt.Errorf("missing presigned parameters")
 	}
 
 	credParts := strings.Split(credential, "/")
 	if len(credParts) != 5 {
-		return fmt.Errorf("invalid credential")
+		return nil, fmt.Errorf("invalid credential")
 	}
 
-	if _, err := a.resolveSecret(credParts[0]); err != nil {
-		return err
+	identity, _, err := a.resolveIdentity(credParts[0])
+	if err != nil {
+		return nil, err
 	}
 
 	t, err := time.Parse("20060102T150405Z", dateStr)
 	if err != nil {
-		return fmt.Errorf("invalid date: %w", err)
+		return nil, fmt.Errorf("invalid date: %w", err)
 	}
 	_ = expires
 	_ = signedHeaders
 	if time.Since(t) > 7*24*time.Hour {
-		return fmt.Errorf("presigned URL expired")
+		return nil, fmt.Errorf("presigned URL expired")
 	}
 
-	return nil
+	return identity, nil
+}
+
+// Authorize checks if an identity is allowed to perform an action on a resource.
+func (a *Authenticator) Authorize(identity *iam.Identity, action, resource string) error {
+	if identity.IsAdmin {
+		return nil
+	}
+	if iam.Evaluate(identity.Policies, action, resource) {
+		return nil
+	}
+	return fmt.Errorf("access denied: %s on %s", action, resource)
 }
 
 func parseAuthParams(s string) map[string]string {

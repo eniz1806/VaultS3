@@ -458,6 +458,102 @@ func (h *BucketHandler) DeleteBucketWebsite(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PutBucketCORS handles PUT /{bucket}?cors.
+func (h *BucketHandler) PutBucketCORS(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		XMLName xml.Name `xml:"CORSConfiguration"`
+		Rules   []struct {
+			AllowedOrigin []string `xml:"AllowedOrigin"`
+			AllowedMethod []string `xml:"AllowedMethod"`
+			AllowedHeader []string `xml:"AllowedHeader"`
+			MaxAgeSeconds int      `xml:"MaxAgeSeconds"`
+		} `xml:"CORSRule"`
+	}
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedXML", "Could not parse CORS XML", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Rules) == 0 {
+		writeS3Error(w, "InvalidArgument", "At least one CORSRule is required", http.StatusBadRequest)
+		return
+	}
+
+	var rules []metadata.CORSRule
+	for _, r := range req.Rules {
+		rules = append(rules, metadata.CORSRule{
+			AllowedOrigins: r.AllowedOrigin,
+			AllowedMethods: r.AllowedMethod,
+			AllowedHeaders: r.AllowedHeader,
+			MaxAgeSecs:     r.MaxAgeSeconds,
+		})
+	}
+
+	if err := h.store.PutCORSConfig(bucket, metadata.CORSConfig{Rules: rules}); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketCORS handles GET /{bucket}?cors.
+func (h *BucketHandler) GetBucketCORS(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	cfg, err := h.store.GetCORSConfig(bucket)
+	if err != nil {
+		writeS3Error(w, "NoSuchCORSConfiguration", "No CORS configuration", http.StatusNotFound)
+		return
+	}
+
+	type xmlCORSRule struct {
+		AllowedOrigin []string `xml:"AllowedOrigin"`
+		AllowedMethod []string `xml:"AllowedMethod"`
+		AllowedHeader []string `xml:"AllowedHeader,omitempty"`
+		MaxAgeSeconds int      `xml:"MaxAgeSeconds,omitempty"`
+	}
+	type xmlCORSConfig struct {
+		XMLName xml.Name      `xml:"CORSConfiguration"`
+		Xmlns   string        `xml:"xmlns,attr"`
+		Rules   []xmlCORSRule `xml:"CORSRule"`
+	}
+
+	var rules []xmlCORSRule
+	for _, r := range cfg.Rules {
+		rules = append(rules, xmlCORSRule{
+			AllowedOrigin: r.AllowedOrigins,
+			AllowedMethod: r.AllowedMethods,
+			AllowedHeader: r.AllowedHeaders,
+			MaxAgeSeconds: r.MaxAgeSecs,
+		})
+	}
+
+	writeXML(w, http.StatusOK, xmlCORSConfig{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		Rules: rules,
+	})
+}
+
+// DeleteBucketCORS handles DELETE /{bucket}?cors.
+func (h *BucketHandler) DeleteBucketCORS(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	h.store.DeleteCORSConfig(bucket)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func isValidBucketName(name string) bool {
 	if len(name) < 3 || len(name) > 63 {
 		return false
