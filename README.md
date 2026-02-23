@@ -38,6 +38,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **IP allowlist/blocklist** — Global and per-user CIDR-based IP restrictions with IPv4/IPv6 support
 - **S3 event notifications** — Per-bucket webhook notifications on object mutations with event type and key prefix/suffix filtering
 - **Async replication** — One-way async replication to peer VaultS3 instances with BoltDB-backed queue, retry with exponential backoff, and loop prevention
+- **CLI tool** — Standalone `vaults3-cli` binary for bucket, object, user, and replication management without AWS CLI
+- **Presigned upload restrictions** — Enforce max file size, content type whitelist, and key prefix on presigned PUT URLs
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -77,6 +79,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Notification Configs | `GET /api/v1/notifications` | Done |
 | Replication Status | `GET /api/v1/replication/status` | Done |
 | Replication Queue | `GET /api/v1/replication/queue` | Done |
+| Presigned URL Generation | `POST /api/v1/presign` | Done |
 
 ## Quick Start
 
@@ -508,6 +511,73 @@ curl http://localhost:9000/api/v1/replication/status   # per-peer sync stats
 curl http://localhost:9000/api/v1/replication/queue     # pending queue entries
 ```
 
+### CLI Tool
+
+VaultS3 includes a standalone CLI binary (`vaults3-cli`) for managing the server:
+
+```bash
+# Set credentials via environment or flags
+export VAULTS3_ENDPOINT=http://localhost:9000
+export VAULTS3_ACCESS_KEY=vaults3-admin
+export VAULTS3_SECRET_KEY=vaults3-secret-change-me
+
+# Bucket operations
+vaults3-cli bucket list
+vaults3-cli bucket create my-bucket
+vaults3-cli bucket info my-bucket
+vaults3-cli bucket delete my-bucket
+
+# Object operations
+vaults3-cli object put my-bucket docs/readme.md ./README.md
+vaults3-cli object ls my-bucket --prefix=docs/
+vaults3-cli object get my-bucket docs/readme.md ./downloaded.md
+vaults3-cli object cp my-bucket/file.txt my-bucket/copy.txt
+vaults3-cli object rm my-bucket docs/readme.md
+vaults3-cli object presign my-bucket file.txt --expires=3600
+
+# IAM user operations
+vaults3-cli user list
+vaults3-cli user create alice --access-key=ak --secret-key=sk
+vaults3-cli user attach-policy alice ReadWriteAccess
+vaults3-cli user delete alice
+
+# Replication monitoring
+vaults3-cli replication status
+vaults3-cli replication queue
+```
+
+Build both binaries with `make build` or just the CLI with `make cli`.
+
+### Presigned Upload Restrictions
+
+Generate presigned PUT URLs with server-enforced restrictions:
+
+```python
+import requests
+
+API = "http://localhost:9000/api/v1"
+headers = {"Authorization": "Bearer <jwt-token>", "Content-Type": "application/json"}
+
+# Generate restricted presigned PUT URL
+resp = requests.post(f"{API}/presign", headers=headers, json={
+    "bucket": "uploads",
+    "key": "images/photo.jpg",
+    "method": "PUT",
+    "expires": 3600,
+    "maxSize": 10485760,               # 10MB max
+    "allowTypes": "image/jpeg,image/png",  # only images
+    "requirePrefix": "images/"         # must upload to images/
+})
+url = resp.json()["url"]
+
+# Upload within restrictions — succeeds
+requests.put(url, data=image_data, headers={"Content-Type": "image/jpeg"})
+
+# Upload too large / wrong type / wrong prefix — 403 Forbidden
+```
+
+Restriction parameters (`X-Vault-MaxSize`, `X-Vault-AllowTypes`, `X-Vault-RequirePrefix`) are embedded in the signed URL and validated server-side.
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -522,7 +592,8 @@ mc cat vaults3/my-bucket/file.txt
 
 ```
 VaultS3/
-├── cmd/vaults3/main.go        — Entry point
+├── cmd/vaults3/main.go        — Server entry point
+├── cmd/vaults3-cli/           — CLI tool (bucket, object, user, replication commands)
 ├── internal/
 │   ├── config/                — YAML config loader
 │   ├── server/                — HTTP server and routing
@@ -592,3 +663,5 @@ VaultS3/
 - [x] IP allowlist/blocklist (global and per-user CIDR restrictions, IPv4/IPv6)
 - [x] S3 event notifications (per-bucket webhooks, event type + prefix/suffix filtering, retry with backoff)
 - [x] Async replication (one-way to peer VaultS3 instances, BoltDB queue, retry with exponential backoff, loop prevention)
+- [x] CLI tool (`vaults3-cli` — bucket, object, user, replication management)
+- [x] Presigned upload restrictions (max size, content type whitelist, key prefix enforcement)

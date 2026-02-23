@@ -418,6 +418,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Validate presigned upload restrictions before processing PUT
+		if r.Method == http.MethodPut {
+			if err := ValidatePresignedRestrictions(r, bucket, key); err != nil {
+				writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
+				return
+			}
+		}
+
 		switch r.Method {
 		case http.MethodPut:
 			if r.Header.Get("X-Amz-Copy-Source") != "" {

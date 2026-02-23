@@ -123,6 +123,10 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/notifications" && r.Method == http.MethodGet:
 		h.handleListNotifications(w, r)
 
+	// Presigned URL generation
+	case path == "/presign" && r.Method == http.MethodPost:
+		h.handleGeneratePresign(w, r)
+
 	// Replication routes
 	case path == "/replication/status" && r.Method == http.MethodGet:
 		h.handleReplicationStatus(w, r)
