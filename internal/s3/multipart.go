@@ -220,6 +220,9 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 		Key:      key,
 		ETag:     etag,
 	})
+	if h.onNotification != nil {
+		h.onNotification("s3:ObjectCreated:CompleteMultipartUpload", bucket, key, totalSize, etag, "")
+	}
 }
 
 // AbortMultipartUpload handles DELETE /{bucket}/{key}?uploadId=X.

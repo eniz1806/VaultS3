@@ -9,14 +9,22 @@ import (
 )
 
 type Config struct {
-	Server      ServerConfig      `yaml:"server"`
-	Storage     StorageConfig     `yaml:"storage"`
-	Auth        AuthConfig        `yaml:"auth"`
-	Encryption  EncryptionConfig  `yaml:"encryption"`
-	Compression CompressionConfig `yaml:"compression"`
-	Logging     LoggingConfig     `yaml:"logging"`
-	Lifecycle   LifecycleConfig   `yaml:"lifecycle"`
-	Security    SecurityConfig    `yaml:"security"`
+	Server        ServerConfig        `yaml:"server"`
+	Storage       StorageConfig       `yaml:"storage"`
+	Auth          AuthConfig          `yaml:"auth"`
+	Encryption    EncryptionConfig    `yaml:"encryption"`
+	Compression   CompressionConfig   `yaml:"compression"`
+	Logging       LoggingConfig       `yaml:"logging"`
+	Lifecycle     LifecycleConfig     `yaml:"lifecycle"`
+	Security      SecurityConfig      `yaml:"security"`
+	Notifications NotificationsConfig `yaml:"notifications"`
+}
+
+type NotificationsConfig struct {
+	MaxWorkers  int `yaml:"max_workers"`
+	QueueSize   int `yaml:"queue_size"`
+	TimeoutSecs int `yaml:"timeout_secs"`
+	MaxRetries  int `yaml:"max_retries"`
 }
 
 type SecurityConfig struct {
@@ -108,6 +116,12 @@ func Load(path string) (*Config, error) {
 		Security: SecurityConfig{
 			AuditRetentionDays: 90,
 			STSMaxDurationSecs: 43200,
+		},
+		Notifications: NotificationsConfig{
+			MaxWorkers:  4,
+			QueueSize:   256,
+			TimeoutSecs: 10,
+			MaxRetries:  3,
 		},
 	}
 

@@ -1,11 +1,13 @@
 package s3
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -231,19 +233,23 @@ func buildCanonicalRequest(r *http.Request, signedHeaders string) string {
 		uri = "/"
 	}
 
-	queryString := r.URL.Query()
-	keys := make([]string, 0, len(queryString))
-	for k := range queryString {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var queryParts []string
-	for _, k := range keys {
-		for _, v := range queryString[k] {
-			queryParts = append(queryParts, fmt.Sprintf("%s=%s", k, v))
+	canonicalQuery := r.URL.RawQuery
+	if canonicalQuery != "" {
+		// Parse and re-encode to get canonical sorted form
+		queryString := r.URL.Query()
+		keys := make([]string, 0, len(queryString))
+		for k := range queryString {
+			keys = append(keys, k)
 		}
+		sort.Strings(keys)
+		var queryParts []string
+		for _, k := range keys {
+			for _, v := range queryString[k] {
+				queryParts = append(queryParts, uriEncode(k)+"="+uriEncode(v))
+			}
+		}
+		canonicalQuery = strings.Join(queryParts, "&")
 	}
-	canonicalQuery := strings.Join(queryParts, "&")
 
 	headerNames := strings.Split(signedHeaders, ";")
 	var canonicalHeaders strings.Builder
@@ -260,7 +266,11 @@ func buildCanonicalRequest(r *http.Request, signedHeaders string) string {
 
 	payloadHash := r.Header.Get("X-Amz-Content-Sha256")
 	if payloadHash == "" {
-		payloadHash = "UNSIGNED-PAYLOAD"
+		// Standard SigV4: compute SHA256 of the request body.
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		h := sha256.Sum256(body)
+		payloadHash = hex.EncodeToString(h[:])
 	}
 
 	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
@@ -287,6 +297,18 @@ func deriveSigningKey(secretKey, dateStr, region, service string) []byte {
 	kService := hmacSHA256(kRegion, []byte(service))
 	kSigning := hmacSHA256(kService, []byte("aws4_request"))
 	return kSigning
+}
+
+func uriEncode(s string) string {
+	var buf strings.Builder
+	for _, b := range []byte(s) {
+		if (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '-' || b == '_' || b == '.' || b == '~' {
+			buf.WriteByte(b)
+		} else {
+			fmt.Fprintf(&buf, "%%%02X", b)
+		}
+	}
+	return buf.String()
 }
 
 func hmacSHA256(key, data []byte) []byte {

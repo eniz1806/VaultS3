@@ -554,6 +554,144 @@ func (h *BucketHandler) DeleteBucketCORS(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PutBucketNotification handles PUT /{bucket}?notification.
+func (h *BucketHandler) PutBucketNotification(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	type xmlFilterRule struct {
+		Name  string `xml:"Name"`
+		Value string `xml:"Value"`
+	}
+	type xmlS3Key struct {
+		FilterRules []xmlFilterRule `xml:"FilterRule"`
+	}
+	type xmlFilter struct {
+		S3Key xmlS3Key `xml:"S3Key"`
+	}
+	type xmlTopicConfig struct {
+		ID     string    `xml:"Id"`
+		Topic  string    `xml:"Topic"`
+		Events []string  `xml:"Event"`
+		Filter xmlFilter `xml:"Filter"`
+	}
+	type xmlNotificationConfig struct {
+		XMLName xml.Name          `xml:"NotificationConfiguration"`
+		Topics  []xmlTopicConfig  `xml:"TopicConfiguration"`
+	}
+
+	var req xmlNotificationConfig
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedXML", "Could not parse notification configuration", http.StatusBadRequest)
+		return
+	}
+
+	cfg := metadata.BucketNotificationConfig{}
+	for _, tc := range req.Topics {
+		if tc.Topic == "" {
+			writeS3Error(w, "InvalidArgument", "Topic (endpoint URL) is required", http.StatusBadRequest)
+			return
+		}
+		var filters []metadata.NotificationFilterRule
+		for _, fr := range tc.Filter.S3Key.FilterRules {
+			filters = append(filters, metadata.NotificationFilterRule{Name: fr.Name, Value: fr.Value})
+		}
+		id := tc.ID
+		if id == "" {
+			id = generateVersionID()[:8]
+		}
+		cfg.Webhooks = append(cfg.Webhooks, metadata.NotificationEndpointConfig{
+			ID:       id,
+			Endpoint: tc.Topic,
+			Events:   tc.Events,
+			Filters:  filters,
+		})
+	}
+
+	if err := h.store.PutNotificationConfig(bucket, cfg); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketNotification handles GET /{bucket}?notification.
+func (h *BucketHandler) GetBucketNotification(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	cfg, err := h.store.GetNotificationConfig(bucket)
+	if err != nil {
+		// No config — return empty notification configuration
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><NotificationConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></NotificationConfiguration>`))
+		return
+	}
+
+	type xmlFilterRule struct {
+		XMLName xml.Name `xml:"FilterRule"`
+		Name    string   `xml:"Name"`
+		Value   string   `xml:"Value"`
+	}
+	type xmlS3Key struct {
+		XMLName     xml.Name        `xml:"S3Key"`
+		FilterRules []xmlFilterRule  `xml:"FilterRule"`
+	}
+	type xmlFilter struct {
+		XMLName xml.Name `xml:"Filter"`
+		S3Key   xmlS3Key `xml:"S3Key"`
+	}
+	type xmlTopicConfig struct {
+		XMLName xml.Name  `xml:"TopicConfiguration"`
+		ID      string    `xml:"Id"`
+		Topic   string    `xml:"Topic"`
+		Events  []string  `xml:"Event"`
+		Filter  *xmlFilter `xml:"Filter,omitempty"`
+	}
+	type xmlNotificationConfig struct {
+		XMLName xml.Name           `xml:"NotificationConfiguration"`
+		Xmlns   string             `xml:"xmlns,attr"`
+		Topics  []xmlTopicConfig   `xml:"TopicConfiguration"`
+	}
+
+	resp := xmlNotificationConfig{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+	}
+	for _, wh := range cfg.Webhooks {
+		tc := xmlTopicConfig{
+			ID:     wh.ID,
+			Topic:  wh.Endpoint,
+			Events: wh.Events,
+		}
+		if len(wh.Filters) > 0 {
+			filter := &xmlFilter{}
+			for _, f := range wh.Filters {
+				filter.S3Key.FilterRules = append(filter.S3Key.FilterRules, xmlFilterRule{Name: f.Name, Value: f.Value})
+			}
+			tc.Filter = filter
+		}
+		resp.Topics = append(resp.Topics, tc)
+	}
+
+	writeXML(w, http.StatusOK, resp)
+}
+
+// DeleteBucketNotification handles DELETE /{bucket}?notification.
+func (h *BucketHandler) DeleteBucketNotification(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	h.store.DeleteNotificationConfig(bucket)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func isValidBucketName(name string) bool {
 	if len(name) < 3 || len(name) > 63 {
 		return false

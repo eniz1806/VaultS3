@@ -22,6 +22,7 @@ type ObjectHandler struct {
 	store             *metadata.Store
 	engine            storage.Engine
 	encryptionEnabled bool
+	onNotification    NotificationFunc
 }
 
 // checkQuota verifies bucket quota limits before writing.
@@ -117,6 +118,9 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 			w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
 		}
 		w.WriteHeader(http.StatusOK)
+		if h.onNotification != nil {
+			h.onNotification("s3:ObjectCreated:Put", bucket, key, written, etag, versionID)
+		}
 		return
 	}
 
@@ -141,6 +145,9 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
 	}
 	w.WriteHeader(http.StatusOK)
+	if h.onNotification != nil {
+		h.onNotification("s3:ObjectCreated:Put", bucket, key, written, etag, "")
+	}
 }
 
 // GetObject handles GET /{bucket}/{key} with optional Range support and ?versionId.
@@ -324,6 +331,9 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 
 		w.Header().Set("X-Amz-Version-Id", versionID)
 		w.WriteHeader(http.StatusNoContent)
+		if h.onNotification != nil {
+			h.onNotification("s3:ObjectRemoved:Delete", bucket, key, 0, "", versionID)
+		}
 		return
 	}
 
@@ -351,6 +361,9 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 		w.Header().Set("X-Amz-Delete-Marker", "true")
 		w.Header().Set("X-Amz-Version-Id", dmVersionID)
 		w.WriteHeader(http.StatusNoContent)
+		if h.onNotification != nil {
+			h.onNotification("s3:ObjectRemoved:Delete", bucket, key, 0, "", dmVersionID)
+		}
 		return
 	}
 
@@ -362,6 +375,9 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 
 	h.store.DeleteObjectMeta(bucket, key)
 	w.WriteHeader(http.StatusNoContent)
+	if h.onNotification != nil {
+		h.onNotification("s3:ObjectRemoved:Delete", bucket, key, 0, "", "")
+	}
 }
 
 // checkObjectLock checks if an object version is locked (legal hold or retention).
@@ -516,6 +532,9 @@ func (h *ObjectHandler) CopyObject(w http.ResponseWriter, r *http.Request, bucke
 		ETag:         etag,
 		LastModified: now.Format(time.RFC3339),
 	})
+	if h.onNotification != nil {
+		h.onNotification("s3:ObjectCreated:Copy", bucket, key, written, etag, "")
+	}
 }
 
 func parseCopySource(source string) (bucket, key string) {
@@ -552,6 +571,9 @@ func (h *ObjectHandler) BatchDelete(w http.ResponseWriter, r *http.Request, buck
 			h.store.DeleteObjectMeta(bucket, obj.Key)
 			if !req.Quiet {
 				result.Deleted = append(result.Deleted, deletedObject{Key: obj.Key})
+			}
+			if h.onNotification != nil {
+				h.onNotification("s3:ObjectRemoved:Delete", bucket, obj.Key, 0, "", "")
 			}
 		}
 	}

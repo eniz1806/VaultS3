@@ -35,3 +35,9 @@ security:
   ip_blocklist: []     # global CIDR deny list
   audit_retention_days: 90
   sts_max_duration_secs: 43200  # max STS token duration (12 hours)
+
+notifications:
+  max_workers: 4       # webhook delivery goroutines
+  queue_size: 256      # buffered event queue size
+  timeout_secs: 10     # webhook HTTP timeout
+  max_retries: 3       # retry attempts for failed webhooks

@@ -17,6 +17,9 @@ type ActivityFunc func(method, bucket, key string, status int, size int64, clien
 // AuditFunc is a callback for recording audit trail entries.
 type AuditFunc func(principal, userID, action, resource, effect, sourceIP string, statusCode int)
 
+// NotificationFunc is called after object mutations to trigger event notifications.
+type NotificationFunc func(eventType, bucket, key string, size int64, etag, versionID string)
+
 // Handler routes incoming S3 API requests to the appropriate handler.
 type Handler struct {
 	store             *metadata.Store
@@ -29,6 +32,7 @@ type Handler struct {
 	metrics           *metrics.Collector
 	onActivity        ActivityFunc
 	onAudit           AuditFunc
+	onNotification    NotificationFunc
 }
 
 func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
@@ -53,6 +57,12 @@ func (h *Handler) SetActivityFunc(fn ActivityFunc) {
 // SetAuditFunc sets the callback for recording audit trail entries.
 func (h *Handler) SetAuditFunc(fn AuditFunc) {
 	h.onAudit = fn
+}
+
+// SetNotificationFunc sets the callback for S3 event notifications.
+func (h *Handler) SetNotificationFunc(fn NotificationFunc) {
+	h.onNotification = fn
+	h.objects.onNotification = fn
 }
 
 // statusWriter wraps ResponseWriter to capture the status code.
@@ -196,6 +206,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.buckets.GetBucketPolicy(w, r, bucket)
 			case http.MethodDelete:
 				h.buckets.DeleteBucketPolicy(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Notification configuration
+		if _, ok := bq["notification"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketNotification(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketNotification(w, r, bucket)
+			case http.MethodDelete:
+				h.buckets.DeleteBucketNotification(w, r, bucket)
 			default:
 				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
 			}

@@ -36,6 +36,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **STS temporary credentials** — Short-lived access keys with configurable TTL, auto-cleanup of expired keys
 - **Audit trail** — Persistent audit log with filtering by user, bucket, time range; auto-pruning via lifecycle worker
 - **IP allowlist/blocklist** — Global and per-user CIDR-based IP restrictions with IPv4/IPv6 support
+- **S3 event notifications** — Per-bucket webhook notifications on object mutations with event type and key prefix/suffix filtering
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -71,6 +72,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | STS Temporary Credentials | `POST /api/v1/sts/session-token` | Done |
 | Audit Trail | `GET /api/v1/audit` | Done |
 | IP Restrictions | `PUT /api/v1/iam/users/{name}/ip-restrictions` | Done |
+| Bucket Notifications | `PUT/GET/DELETE /{bucket}?notification` | Done |
+| Notification Configs | `GET /api/v1/notifications` | Done |
 
 ## Quick Start
 
@@ -428,6 +431,56 @@ requests.put(f"{API}/iam/users/alice/ip-restrictions", headers=headers,
 
 Evaluation order: global blocklist (deny wins) → global allowlist → per-user allowlist. Admin keys are exempt from IP restrictions. Supports both IPv4 and IPv6 CIDR notation.
 
+### S3 Event Notifications
+
+Configure webhooks on buckets to receive notifications when objects are created or deleted:
+
+```python
+from botocore.auth import SigV4Auth
+from botocore.credentials import Credentials
+from botocore.awsrequest import AWSRequest
+import requests
+
+# PUT notification configuration (S3-compatible XML)
+notif_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<NotificationConfiguration>
+  <TopicConfiguration>
+    <Id>my-webhook</Id>
+    <Topic>https://example.com/webhook</Topic>
+    <Event>s3:ObjectCreated:*</Event>
+    <Event>s3:ObjectRemoved:*</Event>
+    <Filter>
+      <S3Key>
+        <FilterRule>
+          <Name>prefix</Name>
+          <Value>images/</Value>
+        </FilterRule>
+      </S3Key>
+    </Filter>
+  </TopicConfiguration>
+</NotificationConfiguration>"""
+
+# Sign and send (using botocore for SigV4)
+url = "http://localhost:9000/my-bucket?notification"
+creds = Credentials("vaults3-admin", "vaults3-secret-change-me")
+req = AWSRequest(method="PUT", url=url, data=notif_xml,
+    headers={"Content-Type": "application/xml"})
+SigV4Auth(creds, "s3", "us-east-1").add_auth(req)
+requests.put(url, headers=dict(req.headers), data=notif_xml)
+```
+
+Supported events: `s3:ObjectCreated:Put`, `s3:ObjectCreated:Copy`, `s3:ObjectCreated:CompleteMultipartUpload`, `s3:ObjectRemoved:Delete`. Use wildcards like `s3:ObjectCreated:*`. Webhook payloads follow the AWS S3 event notification JSON format.
+
+Configure webhook delivery in `configs/vaults3.yaml`:
+
+```yaml
+notifications:
+  max_workers: 4       # concurrent webhook delivery goroutines
+  queue_size: 256      # buffered event queue size
+  timeout_secs: 10     # webhook HTTP timeout
+  max_retries: 3       # retry attempts for failed webhooks
+```
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -451,6 +504,7 @@ VaultS3/
 │   ├── metadata/              — BoltDB metadata store
 │   ├── metrics/               — Prometheus-compatible metrics collector
 │   ├── iam/                   — IAM policy engine, identity, IP access control
+│   ├── notify/                — Event notification dispatcher (webhook delivery)
 │   ├── api/                   — Dashboard REST API (JWT auth, IAM, STS, audit)
 │   └── dashboard/             — Embedded React SPA
 ├── web/                       — React dashboard source (Vite + Tailwind)
@@ -508,4 +562,5 @@ VaultS3/
 - [x] STS temporary credentials (short-lived keys, auto-cleanup, configurable max duration)
 - [x] Audit trail (persistent log, filtering by user/bucket/time, auto-pruning)
 - [x] IP allowlist/blocklist (global and per-user CIDR restrictions, IPv4/IPv6)
+- [x] S3 event notifications (per-bucket webhooks, event type + prefix/suffix filtering, retry with backoff)
 - [ ] Replication

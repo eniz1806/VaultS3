@@ -119,6 +119,10 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
 
+	// Notification configs
+	case path == "/notifications" && r.Method == http.MethodGet:
+		h.handleListNotifications(w, r)
+
 	// Stats route
 	case path == "/stats" && r.Method == http.MethodGet:
 		h.handleStats(w, r)

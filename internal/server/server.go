@@ -18,6 +18,7 @@ import (
 	"github.com/eniz1806/VaultS3/internal/lifecycle"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
+	"github.com/eniz1806/VaultS3/internal/notify"
 	"github.com/eniz1806/VaultS3/internal/s3"
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
@@ -29,7 +30,8 @@ type Server struct {
 	s3h       *s3.Handler
 	metrics   *metrics.Collector
 	activity  *api.ActivityLog
-	accessLog *accesslog.AccessLogger
+	accessLog  *accesslog.AccessLogger
+	notifyDisp *notify.Dispatcher
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -135,17 +137,25 @@ func New(cfg *config.Config) (*Server, error) {
 		})
 	})
 
+	// Initialize notification dispatcher
+	nc := cfg.Notifications
+	notifyDispatcher := notify.NewDispatcher(store, nc.MaxWorkers, nc.QueueSize, nc.TimeoutSecs, nc.MaxRetries)
+	s3h.SetNotificationFunc(func(eventType, bucket, key string, size int64, etag, versionID string) {
+		notifyDispatcher.Dispatch(bucket, key, eventType, size, etag, versionID)
+	})
+
 	// Initialize built-in IAM policies
 	initBuiltinPolicies(store)
 
 	return &Server{
-		cfg:       cfg,
-		store:     store,
-		engine:    engine,
-		s3h:       s3h,
-		metrics:   mc,
-		activity:  activityLog,
-		accessLog: accessLogger,
+		cfg:        cfg,
+		store:      store,
+		engine:     engine,
+		s3h:        s3h,
+		metrics:    mc,
+		activity:   activityLog,
+		accessLog:  accessLogger,
+		notifyDisp: notifyDispatcher,
 	}, nil
 }
 
@@ -197,6 +207,12 @@ func (s *Server) Run() error {
 	lcWorker := lifecycle.NewWorker(s.store, s.engine, s.cfg.Lifecycle.ScanIntervalSecs, s.cfg.Security.AuditRetentionDays)
 	go lcWorker.Run(lcCtx)
 	log.Printf("  Lifecycle:    scan every %ds", s.cfg.Lifecycle.ScanIntervalSecs)
+
+	// Start notification dispatcher
+	notifyCtx, notifyCancel := context.WithCancel(context.Background())
+	defer notifyCancel()
+	s.notifyDisp.Start(notifyCtx)
+	log.Printf("  Notifications: %d workers, queue size %d", s.cfg.Notifications.MaxWorkers, s.cfg.Notifications.QueueSize)
 
 	// Start server in goroutine
 	errCh := make(chan error, 1)
