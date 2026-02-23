@@ -10,6 +10,13 @@ import FileBrowserPage from './pages/FileBrowserPage'
 import AccessKeysPage from './pages/AccessKeysPage'
 import ActivityPage from './pages/ActivityPage'
 import StatsPage from './pages/StatsPage'
+import IAMPage from './pages/IAMPage'
+import AuditPage from './pages/AuditPage'
+import NotificationsPage from './pages/NotificationsPage'
+import ReplicationPage from './pages/ReplicationPage'
+import LambdaPage from './pages/LambdaPage'
+import BackupPage from './pages/BackupPage'
+import SearchPage from './pages/SearchPage'
 import OIDCCallbackPage from './pages/OIDCCallbackPage'
 
 export default function App() {
@@ -29,6 +36,13 @@ export default function App() {
                 <Route path="/access-keys" element={<AccessKeysPage />} />
                 <Route path="/activity" element={<ActivityPage />} />
                 <Route path="/stats" element={<StatsPage />} />
+                <Route path="/iam" element={<IAMPage />} />
+                <Route path="/audit" element={<AuditPage />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
+                <Route path="/replication" element={<ReplicationPage />} />
+                <Route path="/lambda" element={<LambdaPage />} />
+                <Route path="/backup" element={<BackupPage />} />
+                <Route path="/search" element={<SearchPage />} />
               </Route>
             </Route>
           </Routes>

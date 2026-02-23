@@ -25,7 +25,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Per-bucket Prometheus metrics** — Request counts, bytes in/out, and errors with bucket labels at `/metrics`
 - **Prometheus metrics** — `/metrics` endpoint with storage, request, and runtime stats
 - **Presigned URLs** — Pre-authenticated URL generation
-- **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, file browser, access key management, activity log, storage stats, dark/light theme, responsive layout
+- **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, file browser, access key management, activity log, storage stats, IAM management, audit trail viewer, search, notifications, replication status, lambda triggers, backup management, dark/light theme, responsive layout
 - **Health checks** — `/health` (liveness) and `/ready` (readiness) endpoints for load balancers and Kubernetes
 - **Graceful shutdown** — Drains in-flight requests on SIGTERM/SIGINT with configurable timeout
 - **TLS support** — Optional HTTPS with configurable cert/key paths
@@ -215,6 +215,13 @@ The built-in dashboard is available at `http://localhost:9000/dashboard/`. Login
 - Bucket detail — view/edit policies and quotas
 - File browser — list, upload (drag & drop), download, delete objects with folder navigation
 - Access key management — create, list, revoke S3 API keys
+- IAM management — users, groups, policies CRUD with attach/detach operations
+- Audit trail — filter by user, bucket, time range with auto-refresh
+- Search — full-text search across all buckets by key, content type, tags
+- Notifications — view webhook notification configurations
+- Replication — peer status cards, pending queue table
+- Lambda triggers — status overview, trigger table with event filtering
+- Backups — status cards, history table, manual trigger button
 - Activity log — real-time S3 operation feed with auto-refresh
 - Storage stats — total storage, per-bucket breakdown, runtime metrics
 - Dark/light theme — toggle with system preference detection
@@ -997,3 +1004,4 @@ VaultS3/
 - [x] Lambda compute triggers (webhook functions on S3 events, event/key filtering, optional body inclusion, output storage, worker pool)
 - [x] FUSE read cache (LRU block cache, metadata TTL cache, kernel attribute caching, SigV4 key caching)
 - [x] RAM optimization (slim search index with LRU cap, batched last-access writes, GOMEMLIMIT support)
+- [x] Dashboard advanced pages (IAM users/groups/policies, audit trail, search, notifications, replication, lambda triggers, backups — 7 new pages with full CRUD)
