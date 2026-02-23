@@ -27,6 +27,10 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **TLS support** — Optional HTTPS with configurable cert/key paths
 - **Object versioning** — Per-bucket versioning with version IDs, delete markers, version-specific GET/DELETE/HEAD
 - **Object locking (WORM)** — Legal hold and retention (GOVERNANCE/COMPLIANCE) to prevent deletion
+- **Lifecycle rules** — Per-bucket object expiration (auto-delete after N days) with background worker
+- **Gzip compression** — Transparent compress-on-write, decompress-on-read with standard gzip
+- **Access logging** — Structured JSON lines log file of all S3 operations
+- **Static website hosting** — Serve index/error documents from buckets, no auth required
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -53,6 +57,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | List Object Versions | `GET /{bucket}?versions` | Done |
 | Object Locking (Legal Hold) | `PUT/GET /{bucket}/{key}?legal-hold` | Done |
 | Object Locking (Retention) | `PUT/GET /{bucket}/{key}?retention` | Done |
+| Lifecycle Rules | `PUT/GET/DELETE /{bucket}?lifecycle` | Done |
+| Website Hosting | `PUT/GET/DELETE /{bucket}?website` | Done |
 | Presigned URLs | — | Done |
 | Metrics | `GET /metrics` | Done |
 
@@ -98,6 +104,16 @@ auth:
 encryption:
   enabled: false
   key: ""  # 64-character hex string (32 bytes) when enabled
+
+compression:
+  enabled: false
+
+logging:
+  enabled: false
+  file_path: "./access.log"
+
+lifecycle:
+  scan_interval_secs: 3600
 ```
 
 ### Encryption at Rest
@@ -217,6 +233,61 @@ s3.put_object_retention(Bucket='my-bucket', Key='file.txt', VersionId='...',
     Retention={'Mode': 'COMPLIANCE', 'RetainUntilDate': '2030-01-01T00:00:00Z'})
 ```
 
+### Lifecycle Rules
+
+Auto-delete objects after a specified number of days:
+
+```python
+s3.put_bucket_lifecycle_configuration(Bucket='my-bucket',
+    LifecycleConfiguration={
+        'Rules': [{
+            'ID': 'expire-logs',
+            'Expiration': {'Days': 30},
+            'Filter': {'Prefix': 'logs/'},
+            'Status': 'Enabled',
+        }]
+    })
+```
+
+The background worker scans objects periodically (configurable interval, default 1 hour) and deletes expired objects. Locked objects (legal hold or retention) are skipped.
+
+### Compression
+
+Enable gzip compression to reduce storage usage:
+
+```yaml
+compression:
+  enabled: true
+```
+
+All objects are transparently compressed on write and decompressed on read. Works with encryption (data is compressed then encrypted on disk).
+
+### Access Logging
+
+Enable structured JSON access logs:
+
+```yaml
+logging:
+  enabled: true
+  file_path: "./access.log"
+```
+
+Each S3 operation is logged as a JSON line with timestamp, method, bucket, key, status code, bytes, and client IP.
+
+### Static Website Hosting
+
+Serve static websites directly from buckets:
+
+```python
+s3.put_bucket_website(Bucket='my-site',
+    WebsiteConfiguration={
+        'IndexDocument': {'Suffix': 'index.html'},
+        'ErrorDocument': {'Key': 'error.html'}
+    })
+```
+
+Website-enabled buckets serve `index.html` for directory paths and a custom error page for missing objects. No authentication required for GET/HEAD requests.
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -287,6 +358,8 @@ VaultS3/
 - [x] Docker image (multi-stage build with health check)
 - [x] Object versioning (per-bucket, version IDs, delete markers, version-specific operations)
 - [x] Object locking / WORM (legal hold, retention with GOVERNANCE/COMPLIANCE modes)
-- [ ] Lifecycle rules
-- [ ] Compression
+- [x] Lifecycle rules (per-bucket expiration with background worker)
+- [x] Gzip compression (transparent compress/decompress)
+- [x] Access logging (structured JSON lines)
+- [x] Static website hosting (index/error documents, no-auth serving)
 - [ ] Replication

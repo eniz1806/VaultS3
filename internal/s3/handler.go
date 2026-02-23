@@ -86,8 +86,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Check for public-read policy bypass on GET/HEAD object requests
 	authRequired := true
-	if bucket != "" && key != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
-		if h.store.IsBucketPublicRead(bucket) {
+	if bucket != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		if key != "" && h.store.IsBucketPublicRead(bucket) {
+			authRequired = false
+		}
+		if h.store.IsBucketWebsite(bucket) {
 			authRequired = false
 		}
 	}
@@ -97,6 +100,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := h.auth.Authenticate(r); err != nil {
 			writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
 			return
+		}
+	}
+
+	// Static website serving — intercept before normal routing
+	if bucket != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		if h.store.IsBucketWebsite(bucket) {
+			// Only serve website for non-API requests (no query params like ?policy, ?versioning, etc.)
+			if len(r.URL.Query()) == 0 {
+				h.serveWebsite(w, r, bucket, key)
+				return
+			}
 		}
 	}
 
@@ -122,6 +136,36 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.buckets.GetBucketPolicy(w, r, bucket)
 			case http.MethodDelete:
 				h.buckets.DeleteBucketPolicy(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Website operations
+		if _, ok := bq["website"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketWebsite(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketWebsite(w, r, bucket)
+			case http.MethodDelete:
+				h.buckets.DeleteBucketWebsite(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Lifecycle operations
+		if _, ok := bq["lifecycle"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketLifecycle(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketLifecycle(w, r, bucket)
+			case http.MethodDelete:
+				h.buckets.DeleteBucketLifecycle(w, r, bucket)
 			default:
 				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
 			}

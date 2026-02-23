@@ -19,3 +19,13 @@ auth:
 encryption:
   enabled: false
   key: ""
+
+compression:
+  enabled: false
+
+logging:
+  enabled: false
+  file_path: "./access.log"
+
+lifecycle:
+  scan_interval_secs: 3600

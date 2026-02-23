@@ -11,9 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/eniz1806/VaultS3/internal/accesslog"
 	"github.com/eniz1806/VaultS3/internal/api"
 	"github.com/eniz1806/VaultS3/internal/config"
 	"github.com/eniz1806/VaultS3/internal/dashboard"
+	"github.com/eniz1806/VaultS3/internal/lifecycle"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
 	"github.com/eniz1806/VaultS3/internal/s3"
@@ -21,12 +23,13 @@ import (
 )
 
 type Server struct {
-	cfg      *config.Config
-	store    *metadata.Store
-	engine   storage.Engine
-	s3h      *s3.Handler
-	metrics  *metrics.Collector
-	activity *api.ActivityLog
+	cfg       *config.Config
+	store     *metadata.Store
+	engine    storage.Engine
+	s3h       *s3.Handler
+	metrics   *metrics.Collector
+	activity  *api.ActivityLog
+	accessLog *accesslog.AccessLogger
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -38,13 +41,19 @@ func New(cfg *config.Config) (*Server, error) {
 
 	var engine storage.Engine = fs
 
+	// Wrap with compression if enabled (compress before encrypt)
+	if cfg.Compression.Enabled {
+		engine = storage.NewCompressedEngine(engine)
+		log.Println("Compression: enabled (gzip)")
+	}
+
 	// Wrap with encryption if enabled
 	if cfg.Encryption.Enabled {
 		keyBytes, err := cfg.Encryption.KeyBytes()
 		if err != nil {
 			return nil, fmt.Errorf("encryption config: %w", err)
 		}
-		enc, err := storage.NewEncryptedEngine(fs, keyBytes)
+		enc, err := storage.NewEncryptedEngine(engine, keyBytes)
 		if err != nil {
 			return nil, fmt.Errorf("init encryption: %w", err)
 		}
@@ -74,10 +83,23 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize S3 handler
 	s3h := s3.NewHandler(store, engine, auth, cfg.Encryption.Enabled, cfg.Server.Domain, mc)
 
-	// Wire activity recording from S3 handler to activity log
+	// Initialize access logger if enabled
+	var accessLogger *accesslog.AccessLogger
+	if cfg.Logging.Enabled {
+		var err error
+		accessLogger, err = accesslog.NewAccessLogger(cfg.Logging.FilePath)
+		if err != nil {
+			store.Close()
+			return nil, fmt.Errorf("init access logger: %w", err)
+		}
+		log.Printf("Access logging: enabled (%s)", cfg.Logging.FilePath)
+	}
+
+	// Wire activity recording from S3 handler to activity log + access logger
 	s3h.SetActivityFunc(func(method, bucket, key string, status int, size int64, clientIP string) {
+		now := time.Now().UTC()
 		activityLog.Record(api.ActivityEntry{
-			Time:     time.Now().UTC(),
+			Time:     now,
 			Method:   method,
 			Bucket:   bucket,
 			Key:      key,
@@ -85,15 +107,27 @@ func New(cfg *config.Config) (*Server, error) {
 			Size:     size,
 			ClientIP: clientIP,
 		})
+		if accessLogger != nil {
+			accessLogger.Log(accesslog.AccessEntry{
+				Time:     now,
+				Method:   method,
+				Bucket:   bucket,
+				Key:      key,
+				Status:   status,
+				Bytes:    size,
+				ClientIP: clientIP,
+			})
+		}
 	})
 
 	return &Server{
-		cfg:      cfg,
-		store:    store,
-		engine:   engine,
-		s3h:      s3h,
-		metrics:  mc,
-		activity: activityLog,
+		cfg:       cfg,
+		store:     store,
+		engine:    engine,
+		s3h:       s3h,
+		metrics:   mc,
+		activity:  activityLog,
+		accessLog: accessLogger,
 	}, nil
 }
 
@@ -139,6 +173,13 @@ func (s *Server) Run() error {
 		log.Printf("  TLS:          enabled (%s, %s)", s.cfg.Server.TLS.CertFile, s.cfg.Server.TLS.KeyFile)
 	}
 
+	// Start lifecycle worker
+	lcCtx, lcCancel := context.WithCancel(context.Background())
+	defer lcCancel()
+	lcWorker := lifecycle.NewWorker(s.store, s.engine, s.cfg.Lifecycle.ScanIntervalSecs)
+	go lcWorker.Run(lcCtx)
+	log.Printf("  Lifecycle:    scan every %ds", s.cfg.Lifecycle.ScanIntervalSecs)
+
 	// Start server in goroutine
 	errCh := make(chan error, 1)
 	go func() {
@@ -175,6 +216,9 @@ func (s *Server) Run() error {
 }
 
 func (s *Server) Close() {
+	if s.accessLog != nil {
+		s.accessLog.Close()
+	}
 	if s.store != nil {
 		s.store.Close()
 	}

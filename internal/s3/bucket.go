@@ -224,6 +224,105 @@ func (h *BucketHandler) GetBucketQuota(w http.ResponseWriter, r *http.Request, b
 	json.NewEncoder(w).Encode(resp)
 }
 
+// PutBucketLifecycle handles PUT /{bucket}?lifecycle.
+func (h *BucketHandler) PutBucketLifecycle(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		XMLName xml.Name `xml:"LifecycleConfiguration"`
+		Rules   []struct {
+			Expiration struct {
+				Days int `xml:"Days"`
+			} `xml:"Expiration"`
+			Filter struct {
+				Prefix string `xml:"Prefix"`
+			} `xml:"Filter"`
+			Status string `xml:"Status"`
+		} `xml:"Rule"`
+	}
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedXML", "Could not parse lifecycle XML", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Rules) == 0 {
+		writeS3Error(w, "InvalidArgument", "At least one rule is required", http.StatusBadRequest)
+		return
+	}
+
+	// Store the first rule (simplified — one rule per bucket)
+	rule := req.Rules[0]
+	if rule.Expiration.Days <= 0 {
+		writeS3Error(w, "InvalidArgument", "Expiration days must be positive", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.store.PutLifecycleRule(bucket, metadata.LifecycleRule{
+		ExpirationDays: rule.Expiration.Days,
+		Prefix:         rule.Filter.Prefix,
+		Status:         rule.Status,
+	}); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketLifecycle handles GET /{bucket}?lifecycle.
+func (h *BucketHandler) GetBucketLifecycle(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	rule, err := h.store.GetLifecycleRule(bucket)
+	if err != nil {
+		writeS3Error(w, "NoSuchLifecycleConfiguration", "No lifecycle configuration", http.StatusNotFound)
+		return
+	}
+
+	type xmlExpiration struct {
+		Days int `xml:"Days"`
+	}
+	type xmlFilter struct {
+		Prefix string `xml:"Prefix,omitempty"`
+	}
+	type xmlRule struct {
+		Expiration xmlExpiration `xml:"Expiration"`
+		Filter     xmlFilter    `xml:"Filter"`
+		Status     string       `xml:"Status"`
+	}
+	type xmlLifecycleConfig struct {
+		XMLName xml.Name  `xml:"LifecycleConfiguration"`
+		Xmlns   string    `xml:"xmlns,attr"`
+		Rules   []xmlRule `xml:"Rule"`
+	}
+
+	writeXML(w, http.StatusOK, xmlLifecycleConfig{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		Rules: []xmlRule{{
+			Expiration: xmlExpiration{Days: rule.ExpirationDays},
+			Filter:     xmlFilter{Prefix: rule.Prefix},
+			Status:     rule.Status,
+		}},
+	})
+}
+
+// DeleteBucketLifecycle handles DELETE /{bucket}?lifecycle.
+func (h *BucketHandler) DeleteBucketLifecycle(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	h.store.DeleteLifecycleRule(bucket)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // PutBucketVersioning handles PUT /{bucket}?versioning.
 func (h *BucketHandler) PutBucketVersioning(w http.ResponseWriter, r *http.Request, bucket string) {
 	if !h.store.BucketExists(bucket) {
@@ -272,6 +371,91 @@ func (h *BucketHandler) GetBucketVersioning(w http.ResponseWriter, r *http.Reque
 		Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
 		Status: status,
 	})
+}
+
+// PutBucketWebsite handles PUT /{bucket}?website.
+func (h *BucketHandler) PutBucketWebsite(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		XMLName       xml.Name `xml:"WebsiteConfiguration"`
+		IndexDocument struct {
+			Suffix string `xml:"Suffix"`
+		} `xml:"IndexDocument"`
+		ErrorDocument struct {
+			Key string `xml:"Key"`
+		} `xml:"ErrorDocument"`
+	}
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedXML", "Could not parse website XML", http.StatusBadRequest)
+		return
+	}
+
+	if req.IndexDocument.Suffix == "" {
+		writeS3Error(w, "InvalidArgument", "IndexDocument Suffix is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.store.PutWebsiteConfig(bucket, metadata.WebsiteConfig{
+		IndexDocument: req.IndexDocument.Suffix,
+		ErrorDocument: req.ErrorDocument.Key,
+	}); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketWebsite handles GET /{bucket}?website.
+func (h *BucketHandler) GetBucketWebsite(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	cfg, err := h.store.GetWebsiteConfig(bucket)
+	if err != nil {
+		writeS3Error(w, "NoSuchWebsiteConfiguration", "No website configuration", http.StatusNotFound)
+		return
+	}
+
+	type xmlIndex struct {
+		Suffix string `xml:"Suffix"`
+	}
+	type xmlError struct {
+		Key string `xml:"Key,omitempty"`
+	}
+	type xmlWebsiteConfig struct {
+		XMLName       xml.Name `xml:"WebsiteConfiguration"`
+		Xmlns         string   `xml:"xmlns,attr"`
+		IndexDocument xmlIndex `xml:"IndexDocument"`
+		ErrorDocument *xmlError `xml:"ErrorDocument,omitempty"`
+	}
+
+	resp := xmlWebsiteConfig{
+		Xmlns:         "http://s3.amazonaws.com/doc/2006-03-01/",
+		IndexDocument: xmlIndex{Suffix: cfg.IndexDocument},
+	}
+	if cfg.ErrorDocument != "" {
+		resp.ErrorDocument = &xmlError{Key: cfg.ErrorDocument}
+	}
+
+	writeXML(w, http.StatusOK, resp)
+}
+
+// DeleteBucketWebsite handles DELETE /{bucket}?website.
+func (h *BucketHandler) DeleteBucketWebsite(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	h.store.DeleteWebsiteConfig(bucket)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func isValidBucketName(name string) bool {

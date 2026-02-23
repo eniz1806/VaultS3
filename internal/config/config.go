@@ -9,10 +9,13 @@ import (
 )
 
 type Config struct {
-	Server     ServerConfig     `yaml:"server"`
-	Storage    StorageConfig    `yaml:"storage"`
-	Auth       AuthConfig       `yaml:"auth"`
-	Encryption EncryptionConfig `yaml:"encryption"`
+	Server      ServerConfig      `yaml:"server"`
+	Storage     StorageConfig     `yaml:"storage"`
+	Auth        AuthConfig        `yaml:"auth"`
+	Encryption  EncryptionConfig  `yaml:"encryption"`
+	Compression CompressionConfig `yaml:"compression"`
+	Logging     LoggingConfig     `yaml:"logging"`
+	Lifecycle   LifecycleConfig   `yaml:"lifecycle"`
 }
 
 type ServerConfig struct {
@@ -42,6 +45,19 @@ type AuthConfig struct {
 type EncryptionConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Key     string `yaml:"key"` // hex-encoded 32-byte key (64 hex chars)
+}
+
+type CompressionConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+type LoggingConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	FilePath string `yaml:"file_path"`
+}
+
+type LifecycleConfig struct {
+	ScanIntervalSecs int `yaml:"scan_interval_secs"`
 }
 
 // KeyBytes returns the decoded encryption key bytes.
@@ -74,6 +90,12 @@ func Load(path string) (*Config, error) {
 		Storage: StorageConfig{
 			DataDir:     "./data",
 			MetadataDir: "./metadata",
+		},
+		Logging: LoggingConfig{
+			FilePath: "./access.log",
+		},
+		Lifecycle: LifecycleConfig{
+			ScanIntervalSecs: 3600,
 		},
 	}
 
