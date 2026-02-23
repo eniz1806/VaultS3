@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 
@@ -31,7 +32,22 @@ type AuthConfig struct {
 
 type EncryptionConfig struct {
 	Enabled bool   `yaml:"enabled"`
-	Key     string `yaml:"key"`
+	Key     string `yaml:"key"` // hex-encoded 32-byte key (64 hex chars)
+}
+
+// KeyBytes returns the decoded encryption key bytes.
+func (e *EncryptionConfig) KeyBytes() ([]byte, error) {
+	if !e.Enabled {
+		return nil, nil
+	}
+	key, err := hex.DecodeString(e.Key)
+	if err != nil {
+		return nil, fmt.Errorf("encryption key must be hex-encoded: %w", err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("encryption key must be 32 bytes (64 hex chars), got %d bytes", len(key))
+	}
+	return key, nil
 }
 
 func Load(path string) (*Config, error) {
@@ -53,6 +69,13 @@ func Load(path string) (*Config, error) {
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	// Validate encryption config
+	if cfg.Encryption.Enabled {
+		if _, err := cfg.Encryption.KeyBytes(); err != nil {
+			return nil, fmt.Errorf("invalid encryption config: %w", err)
+		}
 	}
 
 	return cfg, nil

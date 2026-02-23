@@ -117,6 +117,16 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Check quota (estimate size from parts)
+	parts, _ := h.store.ListParts(uploadID)
+	var estimatedSize int64
+	for _, p := range parts {
+		estimatedSize += p.Size
+	}
+	if !h.checkQuota(w, bucket, estimatedSize) {
+		return
+	}
+
 	type completePart struct {
 		PartNumber int    `xml:"PartNumber"`
 		ETag       string `xml:"ETag"`

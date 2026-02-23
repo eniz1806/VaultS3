@@ -11,36 +11,48 @@ import (
 
 // Handler routes incoming S3 API requests to the appropriate handler.
 type Handler struct {
-	store   *metadata.Store
-	engine  storage.Engine
-	auth    *Authenticator
-	buckets *BucketHandler
-	objects *ObjectHandler
+	store             *metadata.Store
+	engine            storage.Engine
+	auth              *Authenticator
+	buckets           *BucketHandler
+	objects           *ObjectHandler
+	encryptionEnabled bool
 }
 
-func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator) *Handler {
+func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool) *Handler {
 	h := &Handler{
-		store:  store,
-		engine: engine,
-		auth:   auth,
+		store:             store,
+		engine:            engine,
+		auth:              auth,
+		encryptionEnabled: encryptionEnabled,
 	}
 	h.buckets = &BucketHandler{store: store, engine: engine}
-	h.objects = &ObjectHandler{store: store, engine: engine}
+	h.objects = &ObjectHandler{store: store, engine: engine, encryptionEnabled: encryptionEnabled}
 	return h
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Authenticate
-	if err := h.auth.Authenticate(r); err != nil {
-		writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
-		return
-	}
-
 	// Parse bucket and key from path: /{bucket} or /{bucket}/{key...}
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	bucket, key := parsePath(path)
 
 	log.Printf("[S3] %s /%s/%s", r.Method, bucket, key)
+
+	// Check for public-read policy bypass on GET/HEAD object requests
+	authRequired := true
+	if bucket != "" && key != "" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		if h.store.IsBucketPublicRead(bucket) {
+			authRequired = false
+		}
+	}
+
+	// Authenticate
+	if authRequired {
+		if err := h.auth.Authenticate(r); err != nil {
+			writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
+			return
+		}
+	}
 
 	// Route based on path and method
 	switch {
@@ -53,6 +65,36 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case key == "":
 		// Bucket-level operations
+		bq := r.URL.Query()
+
+		// Policy operations
+		if _, ok := bq["policy"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketPolicy(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketPolicy(w, r, bucket)
+			case http.MethodDelete:
+				h.buckets.DeleteBucketPolicy(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Quota operations
+		if _, ok := bq["quota"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketQuota(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketQuota(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
 		switch r.Method {
 		case http.MethodPut:
 			h.buckets.CreateBucket(w, r, bucket)
@@ -63,8 +105,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case http.MethodGet:
 			h.objects.ListObjects(w, r, bucket)
 		case http.MethodPost:
-			// POST /{bucket}?delete = Batch delete
-			if _, ok := r.URL.Query()["delete"]; ok {
+			if _, ok := bq["delete"]; ok {
 				h.objects.BatchDelete(w, r, bucket)
 			} else {
 				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)

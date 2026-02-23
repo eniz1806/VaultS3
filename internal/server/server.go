@@ -22,9 +22,25 @@ type Server struct {
 
 func New(cfg *config.Config) (*Server, error) {
 	// Initialize storage engine
-	engine, err := storage.NewFileSystem(cfg.Storage.DataDir)
+	fs, err := storage.NewFileSystem(cfg.Storage.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("init storage: %w", err)
+	}
+
+	var engine storage.Engine = fs
+
+	// Wrap with encryption if enabled
+	if cfg.Encryption.Enabled {
+		keyBytes, err := cfg.Encryption.KeyBytes()
+		if err != nil {
+			return nil, fmt.Errorf("encryption config: %w", err)
+		}
+		enc, err := storage.NewEncryptedEngine(fs, keyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("init encryption: %w", err)
+		}
+		engine = enc
+		log.Println("Encryption at rest: enabled (AES-256-GCM)")
 	}
 
 	// Initialize metadata store
@@ -41,7 +57,7 @@ func New(cfg *config.Config) (*Server, error) {
 	auth := s3.NewAuthenticator(cfg.Auth.AdminAccessKey, cfg.Auth.AdminSecretKey, store)
 
 	// Initialize S3 handler
-	s3h := s3.NewHandler(store, engine, auth)
+	s3h := s3.NewHandler(store, engine, auth, cfg.Encryption.Enabled)
 
 	return &Server{
 		cfg:    cfg,
@@ -55,14 +71,15 @@ func (s *Server) Start() error {
 	addr := s.cfg.ListenAddr()
 
 	mux := http.NewServeMux()
-
-	// S3 API — catch all
 	mux.Handle("/", s.s3h)
 
 	log.Printf("VaultS3 starting on %s", addr)
 	log.Printf("  Data dir:     %s", s.cfg.Storage.DataDir)
 	log.Printf("  Metadata dir: %s", s.cfg.Storage.MetadataDir)
 	log.Printf("  Access key:   %s", s.cfg.Auth.AdminAccessKey)
+	if s.cfg.Encryption.Enabled {
+		log.Printf("  Encryption:   AES-256-GCM")
+	}
 
 	return http.ListenAndServe(addr, mux)
 }

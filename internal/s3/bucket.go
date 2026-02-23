@@ -1,7 +1,9 @@
 package s3
 
 import (
+	"encoding/json"
 	"encoding/xml"
+	"io"
 	"net/http"
 	"time"
 
@@ -107,6 +109,119 @@ func (h *BucketHandler) HeadBucket(w http.ResponseWriter, r *http.Request, bucke
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// PutBucketPolicy handles PUT /{bucket}?policy.
+func (h *BucketHandler) PutBucketPolicy(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 20*1024)) // 20KB limit
+	if err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Validate JSON
+	var js json.RawMessage
+	if err := json.Unmarshal(body, &js); err != nil {
+		writeS3Error(w, "MalformedPolicy", "Policy is not valid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.store.PutBucketPolicy(bucket, body); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetBucketPolicy handles GET /{bucket}?policy.
+func (h *BucketHandler) GetBucketPolicy(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	policy, err := h.store.GetBucketPolicy(bucket)
+	if err != nil {
+		writeS3Error(w, "NoSuchBucketPolicy", "Bucket policy does not exist", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(policy)
+}
+
+// DeleteBucketPolicy handles DELETE /{bucket}?policy.
+func (h *BucketHandler) DeleteBucketPolicy(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	h.store.DeleteBucketPolicy(bucket)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PutBucketQuota handles PUT /{bucket}?quota.
+func (h *BucketHandler) PutBucketQuota(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		MaxSizeBytes int64 `json:"max_size_bytes"`
+		MaxObjects   int64 `json:"max_objects"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedJSON", "Could not parse request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.store.UpdateBucketQuota(bucket, req.MaxSizeBytes, req.MaxObjects); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketQuota handles GET /{bucket}?quota.
+func (h *BucketHandler) GetBucketQuota(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	info, err := h.store.GetBucket(bucket)
+	if err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	currentSize, currentCount, _ := h.engine.BucketSize(bucket)
+
+	resp := struct {
+		MaxSizeBytes int64 `json:"max_size_bytes"`
+		MaxObjects   int64 `json:"max_objects"`
+		CurrentSize  int64 `json:"current_size_bytes"`
+		CurrentCount int64 `json:"current_object_count"`
+	}{
+		MaxSizeBytes: info.MaxSizeBytes,
+		MaxObjects:   info.MaxObjects,
+		CurrentSize:  currentSize,
+		CurrentCount: currentCount,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
 }
 
 func isValidBucketName(name string) bool {

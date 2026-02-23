@@ -17,14 +17,43 @@ import (
 )
 
 type ObjectHandler struct {
-	store  *metadata.Store
-	engine storage.Engine
+	store             *metadata.Store
+	engine            storage.Engine
+	encryptionEnabled bool
+}
+
+// checkQuota verifies bucket quota limits before writing.
+func (h *ObjectHandler) checkQuota(w http.ResponseWriter, bucket string, incomingSize int64) bool {
+	info, err := h.store.GetBucket(bucket)
+	if err != nil {
+		return true // no bucket info, allow
+	}
+	if info.MaxSizeBytes == 0 && info.MaxObjects == 0 {
+		return true // no limits
+	}
+
+	currentSize, currentCount, _ := h.engine.BucketSize(bucket)
+
+	if info.MaxObjects > 0 && currentCount >= info.MaxObjects {
+		writeS3Error(w, "QuotaExceeded", "Maximum object count exceeded", http.StatusForbidden)
+		return false
+	}
+	if info.MaxSizeBytes > 0 && incomingSize > 0 && currentSize+incomingSize > info.MaxSizeBytes {
+		writeS3Error(w, "QuotaExceeded", "Maximum bucket size exceeded", http.StatusForbidden)
+		return false
+	}
+
+	return true
 }
 
 // PutObject handles PUT /{bucket}/{key}.
 func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket, key string) {
 	if !h.store.BucketExists(bucket) {
 		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	if !h.checkQuota(w, bucket, r.ContentLength) {
 		return
 	}
 
@@ -55,6 +84,9 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 	})
 
 	w.Header().Set("ETag", etag)
+	if h.encryptionEnabled {
+		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -78,6 +110,9 @@ func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket
 		w.Header().Set("ETag", meta.ETag)
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
+	if h.encryptionEnabled {
+		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
+	}
 
 	// Handle Range request
 	rangeHeader := r.Header.Get("Range")
@@ -196,9 +231,14 @@ func (h *ObjectHandler) HeadObject(w http.ResponseWriter, r *http.Request, bucke
 	if meta, err := h.store.GetObjectMeta(bucket, key); err == nil {
 		w.Header().Set("Content-Type", meta.ContentType)
 		w.Header().Set("ETag", meta.ETag)
+		w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
+	} else {
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	}
-	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	w.Header().Set("Accept-Ranges", "bytes")
+	if h.encryptionEnabled {
+		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
