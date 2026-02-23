@@ -30,6 +30,9 @@ type ScanFunc func(bucket, key string, size int64)
 // SearchUpdateFunc is called after object mutations to update the search index.
 type SearchUpdateFunc func(eventType, bucket, key string)
 
+// LambdaFunc is called after object mutations to trigger lambda functions.
+type LambdaFunc func(eventType, bucket, key string, size int64, etag, versionID string)
+
 // Handler routes incoming S3 API requests to the appropriate handler.
 type Handler struct {
 	store             *metadata.Store
@@ -46,6 +49,7 @@ type Handler struct {
 	onReplication     ReplicationFunc
 	onScan            ScanFunc
 	onSearchUpdate    SearchUpdateFunc
+	onLambda          LambdaFunc
 	rateLimiter       *ratelimit.Limiter
 }
 
@@ -100,6 +104,12 @@ func (h *Handler) SetRateLimiter(rl *ratelimit.Limiter) {
 func (h *Handler) SetSearchUpdateFunc(fn SearchUpdateFunc) {
 	h.onSearchUpdate = fn
 	h.objects.onSearchUpdate = fn
+}
+
+// SetLambdaFunc sets the callback for lambda function triggers.
+func (h *Handler) SetLambdaFunc(fn LambdaFunc) {
+	h.onLambda = fn
+	h.objects.onLambda = fn
 }
 
 // statusWriter wraps ResponseWriter to capture the status code.
@@ -231,9 +241,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-VaultS3-Replication") != "" {
 		h.objects.onNotification = nil
 		h.objects.onReplication = nil
+		h.objects.onLambda = nil
 		defer func() {
 			h.objects.onNotification = h.onNotification
 			h.objects.onReplication = h.onReplication
+			h.objects.onLambda = h.onLambda
 		}()
 	}
 
@@ -285,6 +297,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.buckets.GetBucketNotification(w, r, bucket)
 			case http.MethodDelete:
 				h.buckets.DeleteBucketNotification(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Lambda trigger configuration
+		if _, ok := bq["lambda"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketLambda(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketLambda(w, r, bucket)
+			case http.MethodDelete:
+				h.buckets.DeleteBucketLambda(w, r, bucket)
 			default:
 				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
 			}

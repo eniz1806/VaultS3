@@ -10,6 +10,7 @@ import FileBrowserPage from './pages/FileBrowserPage'
 import AccessKeysPage from './pages/AccessKeysPage'
 import ActivityPage from './pages/ActivityPage'
 import StatsPage from './pages/StatsPage'
+import OIDCCallbackPage from './pages/OIDCCallbackPage'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <BrowserRouter basename="/dashboard">
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/oidc-callback" element={<OIDCCallbackPage />} />
             <Route element={<ProtectedRoute />}>
               <Route element={<Layout />}>
                 <Route index element={<Navigate to="/buckets" replace />} />

@@ -703,3 +703,67 @@ func isValidBucketName(name string) bool {
 	}
 	return true
 }
+
+// PutBucketLambda handles PUT /{bucket}?lambda — set lambda trigger configuration.
+func (h *BucketHandler) PutBucketLambda(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	var cfg metadata.BucketLambdaConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeS3Error(w, "MalformedJSON", "Could not parse lambda configuration", http.StatusBadRequest)
+		return
+	}
+
+	for i, t := range cfg.Triggers {
+		if t.FunctionURL == "" {
+			writeS3Error(w, "InvalidArgument", "function_url is required", http.StatusBadRequest)
+			return
+		}
+		if len(t.Events) == 0 {
+			writeS3Error(w, "InvalidArgument", "events is required", http.StatusBadRequest)
+			return
+		}
+		if t.ID == "" {
+			cfg.Triggers[i].ID = generateVersionID()[:8]
+		}
+	}
+
+	if err := h.store.PutLambdaConfig(bucket, cfg); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketLambda handles GET /{bucket}?lambda — get lambda trigger configuration.
+func (h *BucketHandler) GetBucketLambda(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	cfg, err := h.store.GetLambdaConfig(bucket)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"triggers":[]}`))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(cfg)
+}
+
+// DeleteBucketLambda handles DELETE /{bucket}?lambda — remove lambda trigger configuration.
+func (h *BucketHandler) DeleteBucketLambda(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	h.store.DeleteLambdaConfig(bucket)
+	w.WriteHeader(http.StatusNoContent)
+}

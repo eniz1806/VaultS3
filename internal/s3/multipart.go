@@ -227,6 +227,9 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 	if h.onReplication != nil {
 		h.onReplication("s3:ObjectCreated:CompleteMultipartUpload", bucket, key, totalSize, etag, "")
 	}
+	if h.onLambda != nil {
+		h.onLambda("s3:ObjectCreated:CompleteMultipartUpload", bucket, key, totalSize, etag, "")
+	}
 	if h.onScan != nil {
 		h.onScan(bucket, key, totalSize)
 	}

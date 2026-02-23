@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/eniz1806/VaultS3/internal/metadata"
 )
 
 type loginRequest struct {
@@ -47,6 +49,90 @@ func (h *APIHandler) handleMe(w http.ResponseWriter, _ *http.Request) {
 		User:      "admin",
 		AccessKey: h.cfg.Auth.AdminAccessKey,
 	})
+}
+
+type oidcLoginRequest struct {
+	IDToken string `json:"idToken"`
+}
+
+type oidcLoginResponse struct {
+	Token string `json:"token"`
+	User  string `json:"user"`
+	Email string `json:"email"`
+}
+
+func (h *APIHandler) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
+	if h.oidc == nil {
+		writeError(w, http.StatusNotFound, "OIDC not configured")
+		return
+	}
+
+	var req oidcLoginRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	claims, err := h.oidc.ValidateToken(req.IDToken)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("invalid token: %v", err))
+		return
+	}
+
+	userName := claims.Email
+	if userName == "" {
+		userName = claims.Sub
+	}
+
+	// Look up or auto-create IAM user
+	_, err = h.store.GetIAMUser(userName)
+	if err != nil {
+		if !h.cfg.OIDC.AutoCreateUsers {
+			writeError(w, http.StatusForbidden, "user not found and auto-create disabled")
+			return
+		}
+
+		// Auto-create user with role mapping
+		newUser := metadata.IAMUser{
+			Name:      userName,
+			CreatedAt: time.Now().UTC(),
+		}
+		if len(h.cfg.OIDC.RoleMapping) > 0 && len(claims.Groups) > 0 {
+			for _, group := range claims.Groups {
+				if policyName, ok := h.cfg.OIDC.RoleMapping[group]; ok {
+					newUser.PolicyARNs = append(newUser.PolicyARNs, policyName)
+				}
+			}
+		}
+		if createErr := h.store.CreateIAMUser(newUser); createErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create user")
+			return
+		}
+	}
+
+	token, err := h.jwt.Generate(userName, 24*time.Hour)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, oidcLoginResponse{
+		Token: token,
+		User:  userName,
+		Email: claims.Email,
+	})
+}
+
+func (h *APIHandler) handleOIDCConfig(w http.ResponseWriter, _ *http.Request) {
+	enabled := h.oidc != nil
+	resp := map[string]interface{}{
+		"enabled": enabled,
+	}
+	if enabled {
+		resp["issuerUrl"] = h.cfg.OIDC.IssuerURL
+		resp["clientId"] = h.cfg.OIDC.ClientID
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *APIHandler) authenticate(r *http.Request) error {

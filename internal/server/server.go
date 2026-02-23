@@ -16,6 +16,7 @@ import (
 	"github.com/eniz1806/VaultS3/internal/backup"
 	"github.com/eniz1806/VaultS3/internal/config"
 	"github.com/eniz1806/VaultS3/internal/dashboard"
+	"github.com/eniz1806/VaultS3/internal/lambda"
 	"github.com/eniz1806/VaultS3/internal/lifecycle"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
@@ -44,6 +45,7 @@ type Server struct {
 	tieringMgr   *tiering.Manager
 	backupSched  *backup.Scheduler
 	rateLimiter  *ratelimit.Limiter
+	lambdaMgr    *lambda.TriggerManager
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -255,6 +257,16 @@ func New(cfg *config.Config) (*Server, error) {
 			cfg.RateLimit.PerKeyRPS, cfg.RateLimit.PerKeyBurst)
 	}
 
+	// Initialize lambda trigger manager if enabled
+	var lambdaMgr *lambda.TriggerManager
+	if cfg.Lambda.Enabled {
+		lambdaMgr = lambda.NewTriggerManager(store, engine, cfg.Lambda)
+		s3h.SetLambdaFunc(func(eventType, bucket, key string, size int64, etag, versionID string) {
+			lambdaMgr.Dispatch(bucket, key, eventType, size, etag, versionID)
+		})
+		log.Printf("  Lambda:       enabled (%d workers, queue %d)", cfg.Lambda.MaxWorkers, cfg.Lambda.QueueSize)
+	}
+
 	// Initialize built-in IAM policies
 	initBuiltinPolicies(store)
 
@@ -273,6 +285,7 @@ func New(cfg *config.Config) (*Server, error) {
 		tieringMgr:  tieringMgr,
 		backupSched: backupSched,
 		rateLimiter: rateLimiter,
+		lambdaMgr:   lambdaMgr,
 	}, nil
 }
 
@@ -295,6 +308,22 @@ func (s *Server) Run() error {
 	}
 	if s.rateLimiter != nil {
 		apiHandler.SetRateLimiter(s.rateLimiter)
+	}
+
+	// Wire OIDC validator if enabled
+	if s.cfg.OIDC.Enabled && s.cfg.OIDC.IssuerURL != "" {
+		oidcValidator, err := api.NewOIDCValidator(
+			s.cfg.OIDC.IssuerURL,
+			s.cfg.OIDC.ClientID,
+			s.cfg.OIDC.AllowedDomains,
+			s.cfg.OIDC.JWKSCacheSecs,
+		)
+		if err != nil {
+			log.Printf("Warning: OIDC setup failed: %v", err)
+		} else {
+			apiHandler.SetOIDCValidator(oidcValidator)
+			log.Printf("  OIDC:         enabled (issuer=%s)", s.cfg.OIDC.IssuerURL)
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -365,6 +394,14 @@ func (s *Server) Run() error {
 		go s.tieringMgr.Run(tierCtx)
 	}
 
+	// Start lambda trigger manager if enabled
+	if s.lambdaMgr != nil {
+		lambdaCtx, lambdaCancel := context.WithCancel(context.Background())
+		defer lambdaCancel()
+		s.lambdaMgr.Start(lambdaCtx)
+		apiHandler.SetLambdaManager(s.lambdaMgr)
+	}
+
 	// Start backup scheduler if enabled
 	if s.backupSched != nil {
 		backupCtx, backupCancel := context.WithCancel(context.Background())
@@ -433,6 +470,9 @@ func initBuiltinPolicies(store *metadata.Store) {
 }
 
 func (s *Server) Close() {
+	if s.lambdaMgr != nil {
+		s.lambdaMgr.Stop()
+	}
 	if s.rateLimiter != nil {
 		s.rateLimiter.Stop()
 	}

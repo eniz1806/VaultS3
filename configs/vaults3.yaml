@@ -90,3 +90,19 @@ backup:
   schedule_cron: "0 2 * * *"  # daily at 2am
   retention_days: 30
   incremental: false
+
+oidc:
+  enabled: false
+  issuer_url: ""           # OIDC provider URL (e.g. "https://accounts.google.com")
+  client_id: ""            # OAuth2 client ID
+  allowed_domains: []      # restrict to email domains (empty = allow all)
+  role_mapping: {}         # map OIDC groups to VaultS3 policies
+  auto_create_users: true  # auto-create IAM user on first OIDC login
+  jwks_cache_secs: 3600    # JWKS key cache duration
+
+lambda:
+  enabled: false
+  max_response_size: 10485760  # 10MB max response from function
+  timeout_secs: 30
+  max_workers: 4
+  queue_size: 256

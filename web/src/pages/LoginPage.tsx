@@ -1,14 +1,40 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { getOIDCConfig, type OIDCConfigResponse } from '../api/auth'
 
 export default function LoginPage() {
   const [accessKey, setAccessKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const { login } = useAuth()
+  const [oidcConfig, setOidcConfig] = useState<OIDCConfigResponse | null>(null)
+  const { login, loginWithOIDC } = useAuth()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    getOIDCConfig().then(setOidcConfig).catch(() => {})
+  }, [])
+
+  // Listen for OIDC callback message from popup
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data?.type === 'oidc-callback' && event.data.idToken) {
+        setLoading(true)
+        setError('')
+        try {
+          await loginWithOIDC(event.data.idToken)
+          navigate('/buckets', { replace: true })
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'SSO login failed')
+        } finally {
+          setLoading(false)
+        }
+      }
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [loginWithOIDC, navigate])
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -22,6 +48,22 @@ export default function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSSOLogin = () => {
+    if (!oidcConfig?.issuerUrl || !oidcConfig?.clientId) return
+
+    const nonce = Math.random().toString(36).substring(2)
+    const redirectUri = `${window.location.origin}/dashboard/oidc-callback`
+    const authUrl = `${oidcConfig.issuerUrl}/authorize?` +
+      `response_type=id_token` +
+      `&client_id=${encodeURIComponent(oidcConfig.clientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&scope=openid%20email%20profile%20groups` +
+      `&nonce=${nonce}` +
+      `&response_mode=fragment`
+
+    window.open(authUrl, 'oidc-login', 'width=500,height=600,menubar=no,toolbar=no')
   }
 
   return (
@@ -79,6 +121,31 @@ export default function LoginPage() {
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
+
+          {oidcConfig?.enabled && (
+            <>
+              <div className="relative my-2">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-200 dark:border-gray-600"></div>
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="px-2 bg-white dark:bg-gray-800 text-gray-400">or</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSSOLogin}
+                disabled={loading}
+                className="w-full py-2.5 px-4 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 text-gray-700 dark:text-gray-200 text-sm font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+                Sign in with SSO
+              </button>
+            </>
+          )}
         </form>
       </div>
     </div>

@@ -23,6 +23,26 @@ type Config struct {
 	Tiering       TieringConfig       `yaml:"tiering"`
 	Backup        BackupConfig        `yaml:"backup"`
 	RateLimit     RateLimitConfig     `yaml:"rate_limit"`
+	OIDC          OIDCConfig          `yaml:"oidc"`
+	Lambda        LambdaConfig        `yaml:"lambda"`
+}
+
+type OIDCConfig struct {
+	Enabled         bool              `yaml:"enabled"`
+	IssuerURL       string            `yaml:"issuer_url"`
+	ClientID        string            `yaml:"client_id"`
+	AllowedDomains  []string          `yaml:"allowed_domains"`
+	RoleMapping     map[string]string `yaml:"role_mapping"`
+	AutoCreateUsers bool              `yaml:"auto_create_users"`
+	JWKSCacheSecs   int               `yaml:"jwks_cache_secs"`
+}
+
+type LambdaConfig struct {
+	Enabled         bool  `yaml:"enabled"`
+	MaxResponseSize int64 `yaml:"max_response_size"`
+	TimeoutSecs     int   `yaml:"timeout_secs"`
+	MaxWorkers      int   `yaml:"max_workers"`
+	QueueSize       int   `yaml:"queue_size"`
 }
 
 type RateLimitConfig struct {
@@ -232,6 +252,15 @@ func Load(path string) (*Config, error) {
 			BurstSize:      200,
 			PerKeyRPS:      50,
 			PerKeyBurst:    100,
+		},
+		OIDC: OIDCConfig{
+			JWKSCacheSecs: 3600,
+		},
+		Lambda: LambdaConfig{
+			MaxResponseSize: 10 * 1024 * 1024, // 10MB
+			TimeoutSecs:     30,
+			MaxWorkers:      4,
+			QueueSize:       256,
 		},
 	}
 

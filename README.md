@@ -50,6 +50,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Backup scheduler** — Scheduled full/incremental backups to local directory targets with cron-like scheduling and backup history
 - **Git-like versioning** — Visual diff between object versions (text and binary), version tagging with labels, one-click rollback to any version
 - **FUSE mount** — Mount VaultS3 buckets as local filesystem directories with read/write support, lazy loading, and SigV4 authentication
+- **OIDC/JWT SSO** — Sign in to the dashboard with external identity providers (Google, Keycloak, Auth0) via OpenID Connect. RS256 JWT verification with JWKS auto-discovery and caching. Email domain filtering, auto-create users, OIDC group to policy mapping.
+- **Lambda compute triggers** — Webhook-based function triggers on S3 events. Call external URLs with event payload and optional object body, optionally store the response as a new object. Per-bucket trigger configuration with event type and key prefix/suffix filtering. Worker pool with non-blocking dispatch.
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -105,6 +107,12 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Version Tags | `GET/POST/DELETE /api/v1/versions/tags` | Done |
 | Version Rollback | `POST /api/v1/versions/rollback` | Done |
 | Rate Limit Status | `GET /api/v1/ratelimit/status` | Done |
+| OIDC Config | `GET /api/v1/auth/oidc/config` | Done |
+| OIDC Login | `POST /api/v1/auth/oidc` | Done |
+| Lambda Triggers | `PUT/GET/DELETE /{bucket}?lambda` | Done |
+| Lambda Trigger List | `GET /api/v1/lambda/triggers` | Done |
+| Lambda Trigger CRUD | `GET/PUT/DELETE /api/v1/lambda/triggers/{bucket}` | Done |
+| Lambda Status | `GET /api/v1/lambda/status` | Done |
 
 ## Quick Start
 
@@ -984,3 +992,5 @@ VaultS3/
 - [x] Multi-backend notifications (Kafka, NATS, Redis pub/sub and queue backends)
 - [x] Bucket default retention (auto-apply GOVERNANCE/COMPLIANCE retention to new objects)
 - [x] Per-bucket Prometheus metrics (request counts, bytes in/out, errors by bucket label)
+- [x] OIDC/JWT SSO (dashboard login via Google/Keycloak/Auth0, RS256 JWKS verification, domain filtering, auto-create users, role mapping)
+- [x] Lambda compute triggers (webhook functions on S3 events, event/key filtering, optional body inclusion, output storage, worker pool)

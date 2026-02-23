@@ -6,6 +6,7 @@ import (
 
 	"github.com/eniz1806/VaultS3/internal/backup"
 	"github.com/eniz1806/VaultS3/internal/config"
+	"github.com/eniz1806/VaultS3/internal/lambda"
 	"github.com/eniz1806/VaultS3/internal/ratelimit"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
@@ -28,6 +29,8 @@ type APIHandler struct {
 	tieringMgr  *tiering.Manager
 	backupSched *backup.Scheduler
 	rateLimiter *ratelimit.Limiter
+	oidc        *OIDCValidator
+	lambdaMgr   *lambda.TriggerManager
 }
 
 func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Collector, cfg *config.Config, activity *ActivityLog) *APIHandler {
@@ -44,6 +47,11 @@ func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Col
 // SetSearchIndex sets the search index for the API handler.
 func (h *APIHandler) SetSearchIndex(idx *search.Index) {
 	h.searchIndex = idx
+}
+
+// SetOIDCValidator sets the OIDC validator for the API handler.
+func (h *APIHandler) SetOIDCValidator(v *OIDCValidator) {
+	h.oidc = v
 }
 
 func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +71,14 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Login does not require auth
 	if path == "/auth/login" && r.Method == http.MethodPost {
 		h.handleLogin(w, r)
+		return
+	}
+	if path == "/auth/oidc" && r.Method == http.MethodPost {
+		h.handleOIDCLogin(w, r)
+		return
+	}
+	if path == "/auth/oidc/config" && r.Method == http.MethodGet {
+		h.handleOIDCConfig(w, r)
 		return
 	}
 
@@ -181,6 +197,10 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleBackupTrigger(w, r)
 	case path == "/backups/status" && r.Method == http.MethodGet:
 		h.handleBackupStatus(w, r)
+
+	// Lambda trigger routes
+	case strings.HasPrefix(path, "/lambda/"):
+		h.routeLambda(w, r, strings.TrimPrefix(path, "/lambda/"))
 
 	// Replication routes
 	case path == "/replication/status" && r.Method == http.MethodGet:

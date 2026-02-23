@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { createElement } from 'react'
-import { login as apiLogin, getMe, type MeResponse } from '../api/auth'
+import { login as apiLogin, oidcLogin as apiOIDCLogin, getMe, type MeResponse } from '../api/auth'
 
 interface AuthContextType {
   token: string | null
@@ -8,6 +8,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
   login: (accessKey: string, secretKey: string) => Promise<void>
+  loginWithOIDC: (idToken: string) => Promise<void>
   logout: () => void
 }
 
@@ -38,6 +39,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(me)
   }, [])
 
+  const loginWithOIDC = useCallback(async (idToken: string) => {
+    const res = await apiOIDCLogin(idToken)
+    localStorage.setItem('vaults3_token', res.token)
+    setToken(res.token)
+    const me = await getMe()
+    setUser(me)
+  }, [])
+
   const logout = useCallback(() => {
     localStorage.removeItem('vaults3_token')
     setToken(null)
@@ -45,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return createElement(AuthContext.Provider, {
-    value: { token, user, isAuthenticated: !!token && !!user, isLoading, login, logout },
+    value: { token, user, isAuthenticated: !!token && !!user, isLoading, login, loginWithOIDC, logout },
     children,
   })
 }
