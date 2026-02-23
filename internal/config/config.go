@@ -25,6 +25,12 @@ type Config struct {
 	RateLimit     RateLimitConfig     `yaml:"rate_limit"`
 	OIDC          OIDCConfig          `yaml:"oidc"`
 	Lambda        LambdaConfig        `yaml:"lambda"`
+	Memory        MemoryConfig        `yaml:"memory"`
+}
+
+type MemoryConfig struct {
+	MaxSearchEntries int `yaml:"max_search_entries"`
+	GoMemLimitMB     int `yaml:"go_mem_limit_mb"`
 }
 
 type OIDCConfig struct {
@@ -261,6 +267,9 @@ func Load(path string) (*Config, error) {
 			TimeoutSecs:     30,
 			MaxWorkers:      4,
 			QueueSize:       256,
+		},
+		Memory: MemoryConfig{
+			MaxSearchEntries: 50000,
 		},
 	}
 

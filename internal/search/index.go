@@ -1,6 +1,7 @@
 package search
 
 import (
+	"container/list"
 	"strings"
 	"sync"
 	"time"
@@ -19,27 +20,41 @@ type Result struct {
 	Tags         map[string]string `json:"tags,omitempty"`
 }
 
-// entry is an internal index entry.
+// entry is an internal index entry with minimal fields.
 type entry struct {
-	meta   metadata.ObjectMeta
-	bucket string
-	key    string
-	// searchable text: lowercased concatenation of key, content type, tags
-	text string
+	bucket       string
+	key          string
+	size         int64
+	contentType  string
+	lastModified int64
+	etag         string
+	tags         map[string]string
+	text         string
 }
 
 // Index provides in-memory full-text search over object metadata.
 type Index struct {
-	mu      sync.RWMutex
-	entries map[string]*entry // key: "bucket/key"
-	store   *metadata.Store
+	mu         sync.RWMutex
+	entries    map[string]*entry
+	lru        *list.List
+	lruElems   map[string]*list.Element
+	store      *metadata.Store
+	maxEntries int
 }
 
-// NewIndex creates a new search index.
-func NewIndex(store *metadata.Store) *Index {
+const defaultMaxSearchEntries = 50000
+
+// NewIndex creates a new search index with the given max entries cap.
+func NewIndex(store *metadata.Store, maxEntries int) *Index {
+	if maxEntries <= 0 {
+		maxEntries = defaultMaxSearchEntries
+	}
 	return &Index{
-		entries: make(map[string]*entry),
-		store:   store,
+		entries:    make(map[string]*entry, maxEntries),
+		lru:        list.New(),
+		lruElems:   make(map[string]*list.Element, maxEntries),
+		store:      store,
+		maxEntries: maxEntries,
 	}
 }
 
@@ -48,23 +63,31 @@ func (idx *Index) Build() error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	idx.entries = make(map[string]*entry)
+	idx.entries = make(map[string]*entry, idx.maxEntries)
+	idx.lru = list.New()
+	idx.lruElems = make(map[string]*list.Element, idx.maxEntries)
 
 	err := idx.store.IterateAllObjects(func(bucket, key string, meta metadata.ObjectMeta) bool {
 		if meta.DeleteMarker {
 			return true // skip delete markers
 		}
-		e := &entry{
-			meta:   meta,
-			bucket: bucket,
-			key:    key,
-			text:   buildSearchText(bucket, key, meta),
+		mk := bucket + "/" + key
+		e := newEntry(bucket, key, meta)
+		idx.entries[mk] = e
+		elem := idx.lru.PushFront(mk)
+		idx.lruElems[mk] = elem
+
+		// Evict oldest if over cap
+		for len(idx.entries) > idx.maxEntries {
+			oldest := idx.lru.Back()
+			if oldest == nil {
+				break
+			}
+			idx.evictLocked(oldest.Value.(string))
 		}
-		idx.entries[bucket+"/"+key] = e
 		return true
 	})
 
-	// IterateAllObjects returns a "stop" error when iteration is halted early
 	if err != nil && err.Error() == "stop" {
 		return nil
 	}
@@ -76,16 +99,28 @@ func (idx *Index) Update(bucket, key string, meta metadata.ObjectMeta) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
+	mk := bucket + "/" + key
+
 	if meta.DeleteMarker {
-		delete(idx.entries, bucket+"/"+key)
+		idx.evictLocked(mk)
 		return
 	}
 
-	idx.entries[bucket+"/"+key] = &entry{
-		meta:   meta,
-		bucket: bucket,
-		key:    key,
-		text:   buildSearchText(bucket, key, meta),
+	if elem, exists := idx.lruElems[mk]; exists {
+		idx.lru.MoveToFront(elem)
+	} else {
+		elem := idx.lru.PushFront(mk)
+		idx.lruElems[mk] = elem
+	}
+
+	idx.entries[mk] = newEntry(bucket, key, meta)
+
+	for len(idx.entries) > idx.maxEntries {
+		oldest := idx.lru.Back()
+		if oldest == nil {
+			break
+		}
+		idx.evictLocked(oldest.Value.(string))
 	}
 }
 
@@ -93,12 +128,18 @@ func (idx *Index) Update(bucket, key string, meta metadata.ObjectMeta) {
 func (idx *Index) Remove(bucket, key string) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
-	delete(idx.entries, bucket+"/"+key)
+	idx.evictLocked(bucket + "/" + key)
+}
+
+func (idx *Index) evictLocked(mk string) {
+	if elem, ok := idx.lruElems[mk]; ok {
+		idx.lru.Remove(elem)
+		delete(idx.lruElems, mk)
+	}
+	delete(idx.entries, mk)
 }
 
 // Search finds objects matching the query string.
-// Supports: plain text (substring match on key/tags/content-type),
-// "tag:key=value" for tag filtering, "type:content/type" for content-type filtering.
 func (idx *Index) Search(query, bucket string, limit int) []Result {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
@@ -112,7 +153,6 @@ func (idx *Index) Search(query, bucket string, limit int) []Result {
 		return nil
 	}
 
-	// Parse structured query parts
 	var tagFilters []tagFilter
 	var typeFilter string
 	var textTerms []string
@@ -139,17 +179,14 @@ func (idx *Index) Search(query, bucket string, limit int) []Result {
 			continue
 		}
 
-		// Check tag filters
-		if !matchTagFilters(e.meta.Tags, tagFilters) {
+		if !matchTagFilters(e.tags, tagFilters) {
 			continue
 		}
 
-		// Check content-type filter
-		if typeFilter != "" && !strings.Contains(strings.ToLower(e.meta.ContentType), typeFilter) {
+		if typeFilter != "" && !strings.Contains(strings.ToLower(e.contentType), typeFilter) {
 			continue
 		}
 
-		// Check text terms (all must match)
 		if len(textTerms) > 0 {
 			allMatch := true
 			for _, term := range textTerms {
@@ -166,11 +203,11 @@ func (idx *Index) Search(query, bucket string, limit int) []Result {
 		results = append(results, Result{
 			Bucket:       e.bucket,
 			Key:          e.key,
-			Size:         e.meta.Size,
-			ContentType:  e.meta.ContentType,
-			LastModified: e.meta.LastModified,
-			ETag:         e.meta.ETag,
-			Tags:         e.meta.Tags,
+			Size:         e.size,
+			ContentType:  e.contentType,
+			LastModified: e.lastModified,
+			ETag:         e.etag,
+			Tags:         e.tags,
 		})
 
 		if len(results) >= limit {
@@ -188,9 +225,22 @@ func (idx *Index) Count() int {
 	return len(idx.entries)
 }
 
+func newEntry(bucket, key string, meta metadata.ObjectMeta) *entry {
+	return &entry{
+		bucket:       bucket,
+		key:          key,
+		size:         meta.Size,
+		contentType:  meta.ContentType,
+		lastModified: meta.LastModified,
+		etag:         meta.ETag,
+		tags:         meta.Tags,
+		text:         buildSearchText(bucket, key, meta),
+	}
+}
+
 type tagFilter struct {
 	key   string
-	value string // empty means match any value
+	value string
 }
 
 func parseTagFilter(s string) tagFilter {

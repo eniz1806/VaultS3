@@ -51,6 +51,7 @@ type Handler struct {
 	onSearchUpdate    SearchUpdateFunc
 	onLambda          LambdaFunc
 	rateLimiter       *ratelimit.Limiter
+	accessUpdater     *metadata.AccessUpdater
 }
 
 func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
@@ -110,6 +111,12 @@ func (h *Handler) SetSearchUpdateFunc(fn SearchUpdateFunc) {
 func (h *Handler) SetLambdaFunc(fn LambdaFunc) {
 	h.onLambda = fn
 	h.objects.onLambda = fn
+}
+
+// SetAccessUpdater sets the batched access updater.
+func (h *Handler) SetAccessUpdater(u *metadata.AccessUpdater) {
+	h.accessUpdater = u
+	h.objects.accessUpdater = u
 }
 
 // statusWriter wraps ResponseWriter to capture the status code.

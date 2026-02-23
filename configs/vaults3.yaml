@@ -106,3 +106,7 @@ lambda:
   timeout_secs: 30
   max_workers: 4
   queue_size: 256
+
+memory:
+  max_search_entries: 50000    # max objects in search index (LRU eviction)
+  go_mem_limit_mb: 0           # Go runtime memory limit (0 = unlimited)

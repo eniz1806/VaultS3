@@ -49,9 +49,10 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Data tiering** — Automatic hot/cold storage migration based on access patterns with transparent reads and manual migration API
 - **Backup scheduler** — Scheduled full/incremental backups to local directory targets with cron-like scheduling and backup history
 - **Git-like versioning** — Visual diff between object versions (text and binary), version tagging with labels, one-click rollback to any version
-- **FUSE mount** — Mount VaultS3 buckets as local filesystem directories with read/write support, lazy loading, and SigV4 authentication
+- **FUSE mount** — Mount VaultS3 buckets as local filesystem directories with read/write support, lazy loading, and SigV4 authentication. LRU block cache (256KB blocks, configurable size), metadata cache with TTL, kernel attribute caching, and SigV4 derived key caching for fast repeated reads
 - **OIDC/JWT SSO** — Sign in to the dashboard with external identity providers (Google, Keycloak, Auth0) via OpenID Connect. RS256 JWT verification with JWKS auto-discovery and caching. Email domain filtering, auto-create users, OIDC group to policy mapping.
 - **Lambda compute triggers** — Webhook-based function triggers on S3 events. Call external URLs with event payload and optional object body, optionally store the response as a new object. Per-bucket trigger configuration with event type and key prefix/suffix filtering. Worker pool with non-blocking dispatch.
+- **RAM optimization** — Slim search index with LRU eviction cap (50K entries default), batched last-access updates (30s flush interval), configurable Go memory limit (`GOMEMLIMIT`)
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -994,3 +995,5 @@ VaultS3/
 - [x] Per-bucket Prometheus metrics (request counts, bytes in/out, errors by bucket label)
 - [x] OIDC/JWT SSO (dashboard login via Google/Keycloak/Auth0, RS256 JWKS verification, domain filtering, auto-create users, role mapping)
 - [x] Lambda compute triggers (webhook functions on S3 events, event/key filtering, optional body inclusion, output storage, worker pool)
+- [x] FUSE read cache (LRU block cache, metadata TTL cache, kernel attribute caching, SigV4 key caching)
+- [x] RAM optimization (slim search index with LRU cap, batched last-access writes, GOMEMLIMIT support)

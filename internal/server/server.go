@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"runtime/debug"
+
 	"github.com/eniz1806/VaultS3/internal/accesslog"
 	"github.com/eniz1806/VaultS3/internal/api"
 	"github.com/eniz1806/VaultS3/internal/backup"
@@ -44,8 +46,9 @@ type Server struct {
 	scanWorker   *scanner.Scanner
 	tieringMgr   *tiering.Manager
 	backupSched  *backup.Scheduler
-	rateLimiter  *ratelimit.Limiter
-	lambdaMgr    *lambda.TriggerManager
+	rateLimiter     *ratelimit.Limiter
+	lambdaMgr       *lambda.TriggerManager
+	accessUpdater   *metadata.AccessUpdater
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -199,7 +202,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Build search index
-	searchIdx := search.NewIndex(store)
+	searchIdx := search.NewIndex(store, cfg.Memory.MaxSearchEntries)
 	if err := searchIdx.Build(); err != nil {
 		log.Printf("Warning: search index build failed: %v", err)
 	}
@@ -267,6 +270,10 @@ func New(cfg *config.Config) (*Server, error) {
 		log.Printf("  Lambda:       enabled (%d workers, queue %d)", cfg.Lambda.MaxWorkers, cfg.Lambda.QueueSize)
 	}
 
+	// Initialize batched access updater
+	accessUpdater := metadata.NewAccessUpdater(store, 30*time.Second)
+	s3h.SetAccessUpdater(accessUpdater)
+
 	// Initialize built-in IAM policies
 	initBuiltinPolicies(store)
 
@@ -284,8 +291,9 @@ func New(cfg *config.Config) (*Server, error) {
 		scanWorker:  scanWorker,
 		tieringMgr:  tieringMgr,
 		backupSched: backupSched,
-		rateLimiter: rateLimiter,
-		lambdaMgr:   lambdaMgr,
+		rateLimiter:    rateLimiter,
+		lambdaMgr:      lambdaMgr,
+		accessUpdater:  accessUpdater,
 	}, nil
 }
 
@@ -359,6 +367,18 @@ func (s *Server) Run() error {
 	if s.cfg.Server.TLS.Enabled {
 		log.Printf("  TLS:          enabled (%s, %s)", s.cfg.Server.TLS.CertFile, s.cfg.Server.TLS.KeyFile)
 	}
+
+	// Apply Go memory limit if configured
+	if s.cfg.Memory.GoMemLimitMB > 0 {
+		limit := int64(s.cfg.Memory.GoMemLimitMB) * 1024 * 1024
+		debug.SetMemoryLimit(limit)
+		log.Printf("  Memory limit: %d MB", s.cfg.Memory.GoMemLimitMB)
+	}
+
+	// Start batched access updater
+	updaterCtx, updaterCancel := context.WithCancel(context.Background())
+	defer updaterCancel()
+	go s.accessUpdater.Run(updaterCtx)
 
 	// Start lifecycle worker
 	lcCtx, lcCancel := context.WithCancel(context.Background())

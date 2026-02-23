@@ -27,6 +27,7 @@ type ObjectHandler struct {
 	onScan            ScanFunc
 	onSearchUpdate    SearchUpdateFunc
 	onLambda          LambdaFunc
+	accessUpdater     *metadata.AccessUpdater
 }
 
 // checkQuota verifies bucket quota limits before writing.
@@ -256,7 +257,11 @@ func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket
 
 	// Track last access time for tiering
 	if meta != nil {
-		go h.store.UpdateLastAccess(bucket, key)
+		if h.accessUpdater != nil {
+			h.accessUpdater.MarkAccess(bucket, key)
+		} else {
+			go h.store.UpdateLastAccess(bucket, key)
+		}
 	}
 
 	rangeHeader := r.Header.Get("Range")
