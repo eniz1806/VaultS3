@@ -381,3 +381,28 @@ func (h *APIHandler) handleDeleteIAMPolicy(w http.ResponseWriter, _ *http.Reques
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// IP Restrictions
+
+func (h *APIHandler) handleSetIPRestrictions(w http.ResponseWriter, r *http.Request, userName string) {
+	var req struct {
+		AllowedCIDRs []string `json:"allowedCidrs"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	user, err := h.store.GetIAMUser(userName)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	user.AllowedCIDRs = req.AllowedCIDRs
+	if err := h.store.UpdateIAMUser(*user); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}

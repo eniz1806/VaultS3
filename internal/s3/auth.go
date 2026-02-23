@@ -17,16 +17,20 @@ import (
 
 // Authenticator validates S3 Signature V4 requests.
 type Authenticator struct {
-	adminAccessKey string
-	adminSecretKey string
-	store          *metadata.Store
+	adminAccessKey  string
+	adminSecretKey  string
+	store           *metadata.Store
+	globalAllowCIDR []string
+	globalBlockCIDR []string
 }
 
-func NewAuthenticator(accessKey, secretKey string, store *metadata.Store) *Authenticator {
+func NewAuthenticator(accessKey, secretKey string, store *metadata.Store, allowCIDR, blockCIDR []string) *Authenticator {
 	return &Authenticator{
-		adminAccessKey: accessKey,
-		adminSecretKey: secretKey,
-		store:          store,
+		adminAccessKey:  accessKey,
+		adminSecretKey:  secretKey,
+		store:           store,
+		globalAllowCIDR: allowCIDR,
+		globalBlockCIDR: blockCIDR,
 	}
 }
 
@@ -41,13 +45,25 @@ func (a *Authenticator) resolveIdentity(accessKey string) (*iam.Identity, string
 	}
 	if a.store != nil {
 		if key, err := a.store.GetAccessKey(accessKey); err == nil {
+			// Check STS expiration
+			if key.ExpiresAt > 0 && time.Now().Unix() > key.ExpiresAt {
+				return nil, "", fmt.Errorf("credentials have expired")
+			}
+
+			// For STS keys, resolve policies from SourceUserID
+			userID := key.UserID
+			if key.SourceUserID != "" {
+				userID = key.SourceUserID
+			}
+
 			identity := &iam.Identity{
 				AccessKey: accessKey,
-				UserID:    key.UserID,
+				UserID:    userID,
 			}
+
 			// Load policies if linked to a user
-			if key.UserID != "" {
-				iamPolicies, err := a.store.GetUserPolicies(key.UserID)
+			if userID != "" {
+				iamPolicies, err := a.store.GetUserPolicies(userID)
 				if err == nil {
 					for _, p := range iamPolicies {
 						var pol iam.Policy
@@ -55,6 +71,11 @@ func (a *Authenticator) resolveIdentity(accessKey string) (*iam.Identity, string
 							identity.Policies = append(identity.Policies, pol)
 						}
 					}
+				}
+
+				// Load user's IP restrictions
+				if user, err := a.store.GetIAMUser(userID); err == nil {
+					identity.AllowedCIDRs = user.AllowedCIDRs
 				}
 			} else {
 				// Legacy keys without a user get full access
@@ -64,6 +85,29 @@ func (a *Authenticator) resolveIdentity(accessKey string) (*iam.Identity, string
 		}
 	}
 	return nil, "", fmt.Errorf("invalid access key")
+}
+
+// CheckIPAccess validates client IP against global and per-user restrictions.
+func (a *Authenticator) CheckIPAccess(identity *iam.Identity, clientIP string) error {
+	if identity.IsAdmin {
+		return nil
+	}
+
+	// Combine global and per-user CIDR lists
+	blockList := a.globalBlockCIDR
+	allowList := a.globalAllowCIDR
+
+	// Per-user restrictions are additive to global
+	if len(identity.AllowedCIDRs) > 0 {
+		if len(allowList) == 0 {
+			allowList = identity.AllowedCIDRs
+		} else {
+			// Both global and user allowlists — must match at least one from either
+			allowList = append(append([]string{}, allowList...), identity.AllowedCIDRs...)
+		}
+	}
+
+	return iam.CheckIP(clientIP, allowList, blockList)
 }
 
 // Authenticate validates the Authorization header using AWS Signature V4.

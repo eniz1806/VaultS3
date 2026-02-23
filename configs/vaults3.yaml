@@ -29,3 +29,9 @@ logging:
 
 lifecycle:
   scan_interval_secs: 3600
+
+security:
+  ip_allowlist: []     # global CIDR allow list, empty = allow all
+  ip_blocklist: []     # global CIDR deny list
+  audit_retention_days: 90
+  sts_max_duration_secs: 43200  # max STS token duration (12 hours)

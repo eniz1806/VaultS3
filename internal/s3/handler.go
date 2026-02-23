@@ -14,6 +14,9 @@ import (
 // ActivityFunc is a callback for recording S3 activity.
 type ActivityFunc func(method, bucket, key string, status int, size int64, clientIP string)
 
+// AuditFunc is a callback for recording audit trail entries.
+type AuditFunc func(principal, userID, action, resource, effect, sourceIP string, statusCode int)
+
 // Handler routes incoming S3 API requests to the appropriate handler.
 type Handler struct {
 	store             *metadata.Store
@@ -25,6 +28,7 @@ type Handler struct {
 	domain            string // base domain for virtual-hosted style URLs
 	metrics           *metrics.Collector
 	onActivity        ActivityFunc
+	onAudit           AuditFunc
 }
 
 func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
@@ -44,6 +48,11 @@ func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticato
 // SetActivityFunc sets the callback for recording S3 activity.
 func (h *Handler) SetActivityFunc(fn ActivityFunc) {
 	h.onActivity = fn
+}
+
+// SetAuditFunc sets the callback for recording audit trail entries.
+func (h *Handler) SetAuditFunc(fn AuditFunc) {
+	h.onAudit = fn
 }
 
 // statusWriter wraps ResponseWriter to capture the status code.
@@ -107,10 +116,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Extract client IP early (needed for IP check + audit)
+	clientIP := r.RemoteAddr
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		clientIP = strings.TrimSpace(strings.SplitN(fwd, ",", 2)[0])
+	}
+
 	// Authenticate and authorize
 	if authRequired {
 		identity, err := h.auth.Authenticate(r)
 		if err != nil {
+			writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
+			return
+		}
+
+		// IP access check
+		if err := h.auth.CheckIPAccess(identity, clientIP); err != nil {
+			if h.onAudit != nil {
+				action := mapMethodToAction(r.Method, bucket, key, r.URL.Query())
+				resource := formatResource(bucket, key)
+				h.onAudit(identity.AccessKey, identity.UserID, action, resource, "Deny", clientIP, http.StatusForbidden)
+			}
 			writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
 			return
 		}
@@ -120,9 +146,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			action := mapMethodToAction(r.Method, bucket, key, r.URL.Query())
 			resource := formatResource(bucket, key)
 			if err := h.auth.Authorize(identity, action, resource); err != nil {
+				if h.onAudit != nil {
+					h.onAudit(identity.AccessKey, identity.UserID, action, resource, "Deny", clientIP, http.StatusForbidden)
+				}
 				writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
 				return
 			}
+			// Record allowed access
+			if h.onAudit != nil {
+				h.onAudit(identity.AccessKey, identity.UserID, action, resource, "Allow", clientIP, 0)
+			}
+		} else if h.onAudit != nil {
+			action := mapMethodToAction(r.Method, bucket, key, r.URL.Query())
+			resource := formatResource(bucket, key)
+			h.onAudit(identity.AccessKey, identity.UserID, action, resource, "Allow", clientIP, 0)
 		}
 	}
 

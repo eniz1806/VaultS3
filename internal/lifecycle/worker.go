@@ -11,16 +11,18 @@ import (
 )
 
 type Worker struct {
-	store    *metadata.Store
-	engine   storage.Engine
-	interval time.Duration
+	store              *metadata.Store
+	engine             storage.Engine
+	interval           time.Duration
+	auditRetentionDays int
 }
 
-func NewWorker(store *metadata.Store, engine storage.Engine, intervalSecs int) *Worker {
+func NewWorker(store *metadata.Store, engine storage.Engine, intervalSecs, auditRetentionDays int) *Worker {
 	return &Worker{
-		store:    store,
-		engine:   engine,
-		interval: time.Duration(intervalSecs) * time.Second,
+		store:              store,
+		engine:             engine,
+		interval:           time.Duration(intervalSecs) * time.Second,
+		auditRetentionDays: auditRetentionDays,
 	}
 }
 
@@ -121,5 +123,24 @@ func (w *Worker) scan() {
 
 	if expired > 0 {
 		log.Printf("[Lifecycle] deleted %d expired object(s)", expired)
+	}
+
+	// Prune old audit entries
+	if w.auditRetentionDays > 0 {
+		cutoff := time.Now().UTC().AddDate(0, 0, -w.auditRetentionDays)
+		pruned, err := w.store.PruneAuditEntries(cutoff)
+		if err != nil {
+			log.Printf("[Lifecycle] error pruning audit entries: %v", err)
+		} else if pruned > 0 {
+			log.Printf("[Lifecycle] pruned %d old audit entries", pruned)
+		}
+	}
+
+	// Clean up expired STS keys
+	deleted, err := w.store.DeleteExpiredAccessKeys()
+	if err != nil {
+		log.Printf("[Lifecycle] error cleaning expired keys: %v", err)
+	} else if deleted > 0 {
+		log.Printf("[Lifecycle] removed %d expired STS keys", deleted)
 	}
 }

@@ -72,7 +72,8 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize S3 authenticator
-	auth := s3.NewAuthenticator(cfg.Auth.AdminAccessKey, cfg.Auth.AdminSecretKey, store)
+	auth := s3.NewAuthenticator(cfg.Auth.AdminAccessKey, cfg.Auth.AdminSecretKey, store,
+		cfg.Security.IPAllowlist, cfg.Security.IPBlocklist)
 
 	// Initialize metrics collector
 	mc := metrics.NewCollector(store, engine)
@@ -118,6 +119,20 @@ func New(cfg *config.Config) (*Server, error) {
 				ClientIP: clientIP,
 			})
 		}
+	})
+
+	// Wire audit trail recording
+	s3h.SetAuditFunc(func(principal, userID, action, resource, effect, sourceIP string, statusCode int) {
+		store.PutAuditEntry(metadata.AuditEntry{
+			Time:       time.Now().UnixNano(),
+			Principal:  principal,
+			UserID:     userID,
+			Action:     action,
+			Resource:   resource,
+			Effect:     effect,
+			SourceIP:   sourceIP,
+			StatusCode: statusCode,
+		})
 	})
 
 	// Initialize built-in IAM policies
@@ -179,7 +194,7 @@ func (s *Server) Run() error {
 	// Start lifecycle worker
 	lcCtx, lcCancel := context.WithCancel(context.Background())
 	defer lcCancel()
-	lcWorker := lifecycle.NewWorker(s.store, s.engine, s.cfg.Lifecycle.ScanIntervalSecs)
+	lcWorker := lifecycle.NewWorker(s.store, s.engine, s.cfg.Lifecycle.ScanIntervalSecs, s.cfg.Security.AuditRetentionDays)
 	go lcWorker.Run(lcCtx)
 	log.Printf("  Lifecycle:    scan every %ds", s.cfg.Lifecycle.ScanIntervalSecs)
 

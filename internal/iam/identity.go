@@ -2,8 +2,9 @@ package iam
 
 // Identity represents an authenticated caller.
 type Identity struct {
-	AccessKey string
-	UserID    string
-	IsAdmin   bool
-	Policies  []Policy
+	AccessKey    string
+	UserID       string
+	IsAdmin      bool
+	Policies     []Policy
+	AllowedCIDRs []string
 }

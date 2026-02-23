@@ -82,6 +82,14 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accessKey := strings.TrimPrefix(path, "/keys/")
 		h.handleDeleteKey(w, r, accessKey)
 
+	// STS routes
+	case path == "/sts/session-token" && r.Method == http.MethodPost:
+		h.handleCreateSessionToken(w, r)
+
+	// Audit trail route
+	case path == "/audit" && r.Method == http.MethodGet:
+		h.handleListAudit(w, r)
+
 	// IAM User routes
 	case path == "/iam/users" && r.Method == http.MethodGet:
 		h.handleListIAMUsers(w, r)
@@ -152,6 +160,8 @@ func (h *APIHandler) routeIAMUser(w http.ResponseWriter, r *http.Request, rest s
 	case strings.HasPrefix(sub, "groups/") && r.Method == http.MethodDelete:
 		groupName := strings.TrimPrefix(sub, "groups/")
 		h.handleRemoveUserFromGroup(w, r, userName, groupName)
+	case sub == "ip-restrictions" && r.Method == http.MethodPut:
+		h.handleSetIPRestrictions(w, r, userName)
 	default:
 		writeError(w, http.StatusNotFound, "not found")
 	}

@@ -33,6 +33,9 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Static website hosting** — Serve index/error documents from buckets, no auth required
 - **IAM users, groups & policies** — Fine-grained access control with S3-compatible policy evaluation, default deny, wildcard matching
 - **CORS per bucket** — S3-compatible CORS configuration with OPTIONS preflight support
+- **STS temporary credentials** — Short-lived access keys with configurable TTL, auto-cleanup of expired keys
+- **Audit trail** — Persistent audit log with filtering by user, bucket, time range; auto-pruning via lifecycle worker
+- **IP allowlist/blocklist** — Global and per-user CIDR-based IP restrictions with IPv4/IPv6 support
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -65,6 +68,9 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Presigned URLs | — | Done |
 | Metrics | `GET /metrics` | Done |
 | IAM (Users/Groups/Policies) | Dashboard API `/api/v1/iam/*` | Done |
+| STS Temporary Credentials | `POST /api/v1/sts/session-token` | Done |
+| Audit Trail | `GET /api/v1/audit` | Done |
+| IP Restrictions | `PUT /api/v1/iam/users/{name}/ip-restrictions` | Done |
 
 ## Quick Start
 
@@ -118,6 +124,12 @@ logging:
 
 lifecycle:
   scan_interval_secs: 3600
+
+security:
+  ip_allowlist: []     # global CIDR allow list, empty = allow all
+  ip_blocklist: []     # global CIDR deny list
+  audit_retention_days: 90
+  sts_max_duration_secs: 43200  # max STS token duration (12 hours)
 ```
 
 ### Encryption at Rest
@@ -354,6 +366,68 @@ s3.put_bucket_cors(Bucket='my-bucket', CORSConfiguration={
 
 The server responds to `OPTIONS` preflight requests with the configured CORS headers. Unknown origins are rejected with 403.
 
+### STS Temporary Credentials
+
+Issue short-lived access keys for temporary access:
+
+```python
+import requests, boto3
+
+API = "http://localhost:9000/api/v1"
+headers = {"Authorization": "Bearer <jwt-token>", "Content-Type": "application/json"}
+
+# Create temporary credentials for an IAM user (max 12 hours)
+resp = requests.post(f"{API}/sts/session-token", headers=headers,
+    json={"durationSecs": 3600, "userId": "alice"})
+creds = resp.json()  # {"accessKey", "secretKey", "sessionToken", "expiration"}
+
+# Use temporary credentials with any S3 client
+s3 = boto3.client("s3", endpoint_url="http://localhost:9000",
+    aws_access_key_id=creds["accessKey"],
+    aws_secret_access_key=creds["secretKey"])
+```
+
+Temporary keys inherit the IAM user's policies. Expired keys are automatically cleaned up by the lifecycle worker.
+
+### Audit Trail
+
+Query the persistent audit log of all S3 operations:
+
+```python
+# List recent audit entries
+requests.get(f"{API}/audit?limit=50", headers=headers)
+
+# Filter by user, time range, or bucket
+requests.get(f"{API}/audit?user=alice&limit=10", headers=headers)
+requests.get(f"{API}/audit?from=1700000000&to=1700100000", headers=headers)
+requests.get(f"{API}/audit?bucket=my-bucket", headers=headers)
+```
+
+Each entry records: timestamp, principal, user ID, action, resource, effect (Allow/Deny), source IP, and status code. Old entries are automatically pruned based on `security.audit_retention_days`.
+
+### IP Restrictions
+
+Control access by IP address at global or per-user level:
+
+```yaml
+# Global restrictions in config
+security:
+  ip_allowlist: ["10.0.0.0/8", "192.168.0.0/16"]  # empty = allow all
+  ip_blocklist: ["10.0.0.99/32"]  # deny always wins
+```
+
+```python
+# Per-user IP restrictions via API
+requests.put(f"{API}/iam/users/alice/ip-restrictions", headers=headers,
+    json={"allowedCidrs": ["10.0.0.0/8", "::1/128"]})
+
+# Clear restrictions (allow from anywhere)
+requests.put(f"{API}/iam/users/alice/ip-restrictions", headers=headers,
+    json={"allowedCidrs": []})
+```
+
+Evaluation order: global blocklist (deny wins) → global allowlist → per-user allowlist. Admin keys are exempt from IP restrictions. Supports both IPv4 and IPv6 CIDR notation.
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -376,8 +450,8 @@ VaultS3/
 │   ├── storage/               — Storage engine interface + filesystem + encryption
 │   ├── metadata/              — BoltDB metadata store
 │   ├── metrics/               — Prometheus-compatible metrics collector
-│   ├── iam/                   — IAM policy engine (users, groups, policies)
-│   ├── api/                   — Dashboard REST API (JWT auth, IAM management)
+│   ├── iam/                   — IAM policy engine, identity, IP access control
+│   ├── api/                   — Dashboard REST API (JWT auth, IAM, STS, audit)
 │   └── dashboard/             — Embedded React SPA
 ├── web/                       — React dashboard source (Vite + Tailwind)
 ├── configs/vaults3.yaml       — Default configuration
@@ -431,5 +505,7 @@ VaultS3/
 - [x] Static website hosting (index/error documents, no-auth serving)
 - [x] IAM users, groups & policies (fine-grained access control, policy evaluation engine, built-in policies)
 - [x] CORS per bucket (S3-compatible, OPTIONS preflight)
-- [ ] STS temporary credentials
+- [x] STS temporary credentials (short-lived keys, auto-cleanup, configurable max duration)
+- [x] Audit trail (persistent log, filtering by user/bucket/time, auto-pruning)
+- [x] IP allowlist/blocklist (global and per-user CIDR restrictions, IPv4/IPv6)
 - [ ] Replication

@@ -16,6 +16,14 @@ type Config struct {
 	Compression CompressionConfig `yaml:"compression"`
 	Logging     LoggingConfig     `yaml:"logging"`
 	Lifecycle   LifecycleConfig   `yaml:"lifecycle"`
+	Security    SecurityConfig    `yaml:"security"`
+}
+
+type SecurityConfig struct {
+	IPAllowlist        []string `yaml:"ip_allowlist"`
+	IPBlocklist        []string `yaml:"ip_blocklist"`
+	AuditRetentionDays int      `yaml:"audit_retention_days"`
+	STSMaxDurationSecs int      `yaml:"sts_max_duration_secs"`
 }
 
 type ServerConfig struct {
@@ -96,6 +104,10 @@ func Load(path string) (*Config, error) {
 		},
 		Lifecycle: LifecycleConfig{
 			ScanIntervalSecs: 3600,
+		},
+		Security: SecurityConfig{
+			AuditRetentionDays: 90,
+			STSMaxDurationSecs: 43200,
 		},
 	}
 
