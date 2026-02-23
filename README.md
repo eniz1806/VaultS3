@@ -22,6 +22,10 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Prometheus metrics** — `/metrics` endpoint with storage, request, and runtime stats
 - **Presigned URLs** — Pre-authenticated URL generation
 - **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, file browser, access key management, activity log, storage stats, dark/light theme, responsive layout
+- **Health checks** — `/health` (liveness) and `/ready` (readiness) endpoints for load balancers and Kubernetes
+- **Graceful shutdown** — Drains in-flight requests on SIGTERM/SIGINT with configurable timeout
+- **TLS support** — Optional HTTPS with configurable cert/key paths
+- **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
 ## Supported S3 Operations
@@ -71,6 +75,11 @@ server:
   address: "0.0.0.0"
   port: 9000
   domain: ""  # set to enable virtual-hosted URLs (e.g. "s3.example.com")
+  shutdown_timeout_secs: 30
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
 
 storage:
   data_dir: "./data"
@@ -133,6 +142,32 @@ The built-in dashboard is available at `http://localhost:9000/dashboard/`. Login
 
 The dashboard is embedded into the binary — no separate web server needed.
 
+### Health Checks
+
+```bash
+curl http://localhost:9000/health   # liveness: {"status":"ok","uptime":"5h23m"}
+curl http://localhost:9000/ready    # readiness: checks BoltDB, returns 503 if unhealthy
+```
+
+### TLS
+
+Enable HTTPS by providing cert and key files:
+
+```yaml
+server:
+  tls:
+    enabled: true
+    cert_file: "/path/to/cert.pem"
+    key_file: "/path/to/key.pem"
+```
+
+### Docker
+
+```bash
+docker build -t vaults3 .
+docker run -p 9000:9000 -v ./data:/data -v ./metadata:/metadata vaults3
+```
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -160,6 +195,7 @@ VaultS3/
 ├── web/                       — React dashboard source (Vite + Tailwind)
 ├── configs/vaults3.yaml       — Default configuration
 ├── Makefile                   — Build commands
+├── Dockerfile                 — Multi-stage Docker build
 └── README.md
 ```
 
@@ -196,9 +232,12 @@ VaultS3/
 - [x] Virtual-hosted style URLs
 - [x] Prometheus-compatible metrics
 - [x] Web dashboard with built-in UI (login, bucket browser, file management, access keys, activity log, stats, dark/light theme, responsive)
+- [x] Health check endpoints (/health, /ready)
+- [x] Graceful shutdown (SIGTERM/SIGINT with configurable timeout)
+- [x] TLS support (HTTPS with cert/key)
+- [x] Docker image (multi-stage build with health check)
 - [ ] Object versioning
 - [ ] Object locking (WORM)
 - [ ] Lifecycle rules
-- [ ] TLS support
-- [ ] Docker image
+- [ ] Compression
 - [ ] Replication

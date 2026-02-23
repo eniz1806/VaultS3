@@ -16,9 +16,17 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Address string `yaml:"address"`
-	Port    int    `yaml:"port"`
-	Domain  string `yaml:"domain"` // base domain for virtual-hosted URLs (e.g. "localhost", "s3.example.com")
+	Address             string    `yaml:"address"`
+	Port                int       `yaml:"port"`
+	Domain              string    `yaml:"domain"` // base domain for virtual-hosted URLs (e.g. "localhost", "s3.example.com")
+	ShutdownTimeoutSecs int       `yaml:"shutdown_timeout_secs"`
+	TLS                 TLSConfig `yaml:"tls"`
+}
+
+type TLSConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
 }
 
 type StorageConfig struct {
@@ -59,8 +67,9 @@ func Load(path string) (*Config, error) {
 
 	cfg := &Config{
 		Server: ServerConfig{
-			Address: "0.0.0.0",
-			Port:    9000,
+			Address:             "0.0.0.0",
+			Port:                9000,
+			ShutdownTimeoutSecs: 30,
 		},
 		Storage: StorageConfig{
 			DataDir:     "./data",

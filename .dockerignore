@@ -1,0 +1,11 @@
+.git
+.claude
+data/
+metadata/
+web/node_modules
+web/dist
+internal/dashboard/dist
+vaults3
+*.md
+.gitignore
+.dockerignore

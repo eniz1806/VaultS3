@@ -1,11 +1,14 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/eniz1806/VaultS3/internal/api"
@@ -94,31 +97,81 @@ func New(cfg *config.Config) (*Server, error) {
 	}, nil
 }
 
-func (s *Server) Start() error {
+// Run starts the server and blocks until shutdown signal is received.
+// It handles graceful shutdown with a configurable timeout.
+func (s *Server) Run() error {
 	addr := s.cfg.ListenAddr()
 
 	// Dashboard API
 	apiHandler := api.NewAPIHandler(s.store, s.engine, s.metrics, s.cfg, s.activity)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/health", healthHandler(s.metrics.StartTime()))
+	mux.HandleFunc("/ready", readyHandler(s.store))
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle("/dashboard/", dashboard.Handler())
 	mux.Handle("/metrics", s.metrics)
 	mux.Handle("/", s.s3h)
 
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
+	// Log startup info
+	scheme := "http"
+	if s.cfg.Server.TLS.Enabled {
+		scheme = "https"
+	}
 	log.Printf("VaultS3 starting on %s", addr)
 	log.Printf("  Data dir:     %s", s.cfg.Storage.DataDir)
 	log.Printf("  Metadata dir: %s", s.cfg.Storage.MetadataDir)
 	log.Printf("  Access key:   %s", s.cfg.Auth.AdminAccessKey)
-	log.Printf("  Dashboard:    http://%s/dashboard/", addr)
+	log.Printf("  Dashboard:    %s://%s/dashboard/", scheme, addr)
+	log.Printf("  Health:       %s://%s/health", scheme, addr)
 	if s.cfg.Encryption.Enabled {
 		log.Printf("  Encryption:   AES-256-GCM")
 	}
 	if s.cfg.Server.Domain != "" {
 		log.Printf("  Domain:       %s (virtual-hosted URLs enabled)", s.cfg.Server.Domain)
 	}
+	if s.cfg.Server.TLS.Enabled {
+		log.Printf("  TLS:          enabled (%s, %s)", s.cfg.Server.TLS.CertFile, s.cfg.Server.TLS.KeyFile)
+	}
 
-	return http.ListenAndServe(addr, mux)
+	// Start server in goroutine
+	errCh := make(chan error, 1)
+	go func() {
+		if s.cfg.Server.TLS.Enabled {
+			errCh <- httpServer.ListenAndServeTLS(s.cfg.Server.TLS.CertFile, s.cfg.Server.TLS.KeyFile)
+		} else {
+			errCh <- httpServer.ListenAndServe()
+		}
+	}()
+
+	// Wait for signal or server error
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-errCh:
+		return fmt.Errorf("server error: %w", err)
+	case sig := <-sigCh:
+		log.Printf("Received %v, shutting down gracefully...", sig)
+	}
+
+	// Graceful shutdown
+	timeout := time.Duration(s.cfg.Server.ShutdownTimeoutSecs) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := httpServer.Shutdown(ctx); err != nil {
+		log.Printf("Graceful shutdown timed out after %v: %v", timeout, err)
+		return err
+	}
+
+	log.Println("Server stopped gracefully")
+	return nil
 }
 
 func (s *Server) Close() {

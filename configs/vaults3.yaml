@@ -2,6 +2,11 @@ server:
   address: "0.0.0.0"
   port: 9000
   domain: ""  # set to enable virtual-hosted style URLs (e.g. "localhost", "s3.example.com")
+  shutdown_timeout_secs: 30
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
 
 storage:
   data_dir: "./data"
