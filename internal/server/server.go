@@ -20,6 +20,7 @@ import (
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
 	"github.com/eniz1806/VaultS3/internal/notify"
+	"github.com/eniz1806/VaultS3/internal/ratelimit"
 	"github.com/eniz1806/VaultS3/internal/replication"
 	"github.com/eniz1806/VaultS3/internal/s3"
 	"github.com/eniz1806/VaultS3/internal/scanner"
@@ -42,6 +43,7 @@ type Server struct {
 	scanWorker   *scanner.Scanner
 	tieringMgr   *tiering.Manager
 	backupSched  *backup.Scheduler
+	rateLimiter  *ratelimit.Limiter
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -223,6 +225,19 @@ func New(cfg *config.Config) (*Server, error) {
 		log.Printf("  Backup:       enabled (%d targets, schedule=%s)", len(cfg.Backup.Targets), cfg.Backup.ScheduleCron)
 	}
 
+	// Initialize rate limiter if enabled
+	var rateLimiter *ratelimit.Limiter
+	if cfg.RateLimit.Enabled {
+		rateLimiter = ratelimit.NewLimiter(
+			cfg.RateLimit.RequestsPerSec, cfg.RateLimit.BurstSize,
+			cfg.RateLimit.PerKeyRPS, cfg.RateLimit.PerKeyBurst,
+		)
+		s3h.SetRateLimiter(rateLimiter)
+		log.Printf("  Rate limit:   enabled (IP: %.0f rps/%d burst, Key: %.0f rps/%d burst)",
+			cfg.RateLimit.RequestsPerSec, cfg.RateLimit.BurstSize,
+			cfg.RateLimit.PerKeyRPS, cfg.RateLimit.PerKeyBurst)
+	}
+
 	// Initialize built-in IAM policies
 	initBuiltinPolicies(store)
 
@@ -240,6 +255,7 @@ func New(cfg *config.Config) (*Server, error) {
 		scanWorker:  scanWorker,
 		tieringMgr:  tieringMgr,
 		backupSched: backupSched,
+		rateLimiter: rateLimiter,
 	}, nil
 }
 
@@ -259,6 +275,9 @@ func (s *Server) Run() error {
 	}
 	if s.backupSched != nil {
 		apiHandler.SetBackupScheduler(s.backupSched)
+	}
+	if s.rateLimiter != nil {
+		apiHandler.SetRateLimiter(s.rateLimiter)
 	}
 
 	mux := http.NewServeMux()
@@ -397,6 +416,9 @@ func initBuiltinPolicies(store *metadata.Store) {
 }
 
 func (s *Server) Close() {
+	if s.rateLimiter != nil {
+		s.rateLimiter.Stop()
+	}
 	if s.accessLog != nil {
 		s.accessLog.Close()
 	}

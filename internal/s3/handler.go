@@ -8,6 +8,7 @@ import (
 
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
+	"github.com/eniz1806/VaultS3/internal/ratelimit"
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
 
@@ -45,6 +46,7 @@ type Handler struct {
 	onReplication     ReplicationFunc
 	onScan            ScanFunc
 	onSearchUpdate    SearchUpdateFunc
+	rateLimiter       *ratelimit.Limiter
 }
 
 func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
@@ -87,6 +89,11 @@ func (h *Handler) SetReplicationFunc(fn ReplicationFunc) {
 func (h *Handler) SetScanFunc(fn ScanFunc) {
 	h.onScan = fn
 	h.objects.onScan = fn
+}
+
+// SetRateLimiter sets the rate limiter for the S3 handler.
+func (h *Handler) SetRateLimiter(rl *ratelimit.Limiter) {
+	h.rateLimiter = rl
 }
 
 // SetSearchUpdateFunc sets the callback for search index updates.
@@ -160,6 +167,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	clientIP := r.RemoteAddr
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 		clientIP = strings.TrimSpace(strings.SplitN(fwd, ",", 2)[0])
+	}
+
+	// Rate limit check
+	if h.rateLimiter != nil {
+		accessKeyID := extractAccessKeyFromAuth(r)
+		if !h.rateLimiter.Allow(clientIP, accessKeyID) {
+			w.Header().Set("Retry-After", "1")
+			writeS3Error(w, "SlowDown", "Rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
 	}
 
 	// Authenticate and authorize
@@ -424,8 +441,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if uploadID := q.Get("uploadId"); uploadID != "" {
 			switch r.Method {
 			case http.MethodPut:
-				// PUT /{bucket}/{key}?partNumber=N&uploadId=X = UploadPart
-				h.objects.UploadPart(w, r, bucket, key, uploadID)
+				if r.Header.Get("X-Amz-Copy-Source") != "" {
+					h.objects.UploadPartCopy(w, r, bucket, key, uploadID)
+				} else {
+					h.objects.UploadPart(w, r, bucket, key, uploadID)
+				}
 			case http.MethodPost:
 				// POST /{bucket}/{key}?uploadId=X = CompleteMultipartUpload
 				h.objects.CompleteMultipartUpload(w, r, bucket, key, uploadID)
@@ -617,4 +637,24 @@ func matchMethod(allowed []string, method string) bool {
 		}
 	}
 	return false
+}
+
+// extractAccessKeyFromAuth quickly extracts the access key from an Authorization header
+// without performing full signature validation. Returns empty string if not found.
+func extractAccessKeyFromAuth(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	// AWS4-HMAC-SHA256 Credential=ACCESS_KEY/date/region/s3/aws4_request, ...
+	if idx := strings.Index(auth, "Credential="); idx != -1 {
+		rest := auth[idx+len("Credential="):]
+		if slash := strings.Index(rest, "/"); slash != -1 {
+			return rest[:slash]
+		}
+	}
+	// Check query string auth (presigned URLs)
+	if key := r.URL.Query().Get("X-Amz-Credential"); key != "" {
+		if slash := strings.Index(key, "/"); slash != -1 {
+			return key[:slash]
+		}
+	}
+	return ""
 }

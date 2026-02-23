@@ -64,6 +64,13 @@ tiering:
   migrate_after_days: 30
   scan_interval_secs: 3600
 
+rate_limit:
+  enabled: false
+  requests_per_sec: 100   # per IP
+  burst_size: 200
+  per_key_rps: 50         # per access key
+  per_key_burst: 100
+
 backup:
   enabled: false
   targets: []              # list of {name, type, path}

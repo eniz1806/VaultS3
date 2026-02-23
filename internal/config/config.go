@@ -22,6 +22,15 @@ type Config struct {
 	Scanner       ScannerConfig       `yaml:"scanner"`
 	Tiering       TieringConfig       `yaml:"tiering"`
 	Backup        BackupConfig        `yaml:"backup"`
+	RateLimit     RateLimitConfig     `yaml:"rate_limit"`
+}
+
+type RateLimitConfig struct {
+	Enabled        bool    `yaml:"enabled"`
+	RequestsPerSec float64 `yaml:"requests_per_sec"`
+	BurstSize      int     `yaml:"burst_size"`
+	PerKeyRPS      float64 `yaml:"per_key_rps"`
+	PerKeyBurst    int     `yaml:"per_key_burst"`
 }
 
 type TieringConfig struct {
@@ -195,6 +204,12 @@ func Load(path string) (*Config, error) {
 		Backup: BackupConfig{
 			ScheduleCron:  "0 2 * * *",
 			RetentionDays: 30,
+		},
+		RateLimit: RateLimitConfig{
+			RequestsPerSec: 100,
+			BurstSize:      200,
+			PerKeyRPS:      50,
+			PerKeyBurst:    100,
 		},
 	}
 

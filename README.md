@@ -12,7 +12,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **AES-256-GCM encryption at rest** — Optional server-side encryption with SSE headers
 - **Bucket policies** — Public-read, private, custom S3-compatible JSON policies
 - **Quota management** — Per-bucket size and object count limits
-- **Multipart upload** — Full lifecycle (Create, UploadPart, Complete, Abort)
+- **Rate limiting** — Token bucket rate limiter per client IP and per access key to prevent abuse
+- **Multipart upload** — Full lifecycle (Create, UploadPart, UploadPartCopy, Complete, Abort)
 - **Multiple access keys** — Dynamic key management via BoltDB
 - **Object tagging** — Up to 10 tags per object
 - **Range requests** — Partial content downloads (206 responses)
@@ -65,6 +66,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Copy Object | `PUT /{bucket}/{key}` + `x-amz-copy-source` | Done |
 | Batch Delete | `POST /{bucket}?delete` | Done |
 | Multipart Upload | `POST/PUT/DELETE /{bucket}/{key}?uploads&uploadId` | Done |
+| UploadPartCopy | `PUT /{bucket}/{key}?partNumber&uploadId` + `x-amz-copy-source` | Done |
 | Object Tagging | `PUT/GET/DELETE /{bucket}/{key}?tagging` | Done |
 | Bucket Policy | `PUT/GET/DELETE /{bucket}?policy` | Done |
 | Bucket Quota | `PUT/GET /{bucket}?quota` | Done |
@@ -97,6 +99,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Version Diff | `GET /api/v1/versions/diff` | Done |
 | Version Tags | `GET/POST/DELETE /api/v1/versions/tags` | Done |
 | Version Rollback | `POST /api/v1/versions/rollback` | Done |
+| Rate Limit Status | `GET /api/v1/ratelimit/status` | Done |
 
 ## Quick Start
 
@@ -747,6 +750,26 @@ fusermount -u /mnt/vaults3
 
 FUSE mount uses range requests for lazy loading — only the requested bytes are fetched from the server. Write support buffers data and uploads on file close.
 
+### Rate Limiting
+
+Protect against abuse and DDoS with token bucket rate limiting:
+
+```yaml
+rate_limit:
+  enabled: true
+  requests_per_sec: 100   # per client IP
+  burst_size: 200
+  per_key_rps: 50         # per access key
+  per_key_burst: 100
+```
+
+When enabled, each client IP and access key gets an independent token bucket. Requests exceeding the limit receive `429 Too Many Requests` with a `Retry-After: 1` header. Stale buckets are cleaned up after 5 minutes of inactivity.
+
+```bash
+# Check rate limiter status
+curl http://localhost:9000/api/v1/ratelimit/status -H "Authorization: Bearer <token>"
+```
+
 ### Test with mc (MinIO Client)
 
 ```bash
@@ -775,6 +798,7 @@ VaultS3/
 │   ├── replication/           — Async replication worker (SigV4 signer, queue processor)
 │   ├── search/                — In-memory full-text search index
 │   ├── scanner/               — Webhook virus scanning with quarantine
+│   ├── ratelimit/             — Token bucket rate limiter (per IP and per key)
 │   ├── tiering/               — Hot/cold data tiering manager
 │   ├── backup/                — Backup scheduler with local targets
 │   ├── versioning/            — Version diff (LCS), tagging, rollback
@@ -846,3 +870,5 @@ VaultS3/
 - [x] Backup scheduler (full/incremental backups to local targets, cron scheduling, backup history, trigger API)
 - [x] Git-like versioning (visual diff with LCS, version tagging with labels, one-click rollback)
 - [x] FUSE mount (mount buckets as local filesystem, read/write, lazy loading via range requests)
+- [x] Rate limiting (token bucket per IP and per access key, 429 responses, auto-cleanup)
+- [x] UploadPartCopy (copy byte ranges from existing objects as multipart parts)

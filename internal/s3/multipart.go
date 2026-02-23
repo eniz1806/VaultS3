@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/eniz1806/VaultS3/internal/metadata"
@@ -250,6 +251,114 @@ func (h *ObjectHandler) AbortMultipartUpload(w http.ResponseWriter, r *http.Requ
 
 func (h *ObjectHandler) multipartDir(uploadID string) string {
 	return filepath.Join(h.engine.DataDir(), ".multipart", uploadID)
+}
+
+// UploadPartCopy handles PUT /{bucket}/{key}?partNumber=N&uploadId=X with X-Amz-Copy-Source.
+func (h *ObjectHandler) UploadPartCopy(w http.ResponseWriter, r *http.Request, bucket, key, uploadID string) {
+	_, err := h.store.GetMultipartUpload(uploadID)
+	if err != nil {
+		writeS3Error(w, "NoSuchUpload", "Upload not found", http.StatusNotFound)
+		return
+	}
+
+	partNumStr := r.URL.Query().Get("partNumber")
+	partNum, err := strconv.Atoi(partNumStr)
+	if err != nil || partNum < 1 || partNum > 10000 {
+		writeS3Error(w, "InvalidArgument", "Invalid part number", http.StatusBadRequest)
+		return
+	}
+
+	// Parse copy source
+	copySource := r.Header.Get("X-Amz-Copy-Source")
+	copySource = strings.TrimPrefix(copySource, "/")
+	srcBucket, srcKey := parseCopySource(copySource)
+	if srcBucket == "" || srcKey == "" {
+		writeS3Error(w, "InvalidArgument", "Invalid x-amz-copy-source", http.StatusBadRequest)
+		return
+	}
+
+	if !h.store.BucketExists(srcBucket) {
+		writeS3Error(w, "NoSuchBucket", "Source bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	// Read source object
+	reader, srcSize, err := h.engine.GetObject(srcBucket, srcKey)
+	if err != nil {
+		writeS3Error(w, "NoSuchKey", "Source object not found", http.StatusNotFound)
+		return
+	}
+	defer reader.Close()
+
+	var dataReader io.Reader = reader
+	var copySize int64 = srcSize
+
+	// Parse optional range header
+	if rangeHeader := r.Header.Get("X-Amz-Copy-Source-Range"); rangeHeader != "" {
+		// Format: bytes=START-END
+		rangeHeader = strings.TrimPrefix(rangeHeader, "bytes=")
+		parts := strings.SplitN(rangeHeader, "-", 2)
+		if len(parts) != 2 {
+			writeS3Error(w, "InvalidArgument", "Invalid copy source range", http.StatusBadRequest)
+			return
+		}
+		start, err1 := strconv.ParseInt(parts[0], 10, 64)
+		end, err2 := strconv.ParseInt(parts[1], 10, 64)
+		if err1 != nil || err2 != nil || start < 0 || end < start || start >= srcSize {
+			writeS3Error(w, "InvalidArgument", "Invalid copy source range", http.StatusBadRequest)
+			return
+		}
+		if end >= srcSize {
+			end = srcSize - 1
+		}
+		// Skip to start
+		if start > 0 {
+			if _, err := io.CopyN(io.Discard, reader, start); err != nil {
+				writeS3Error(w, "InternalError", "Failed to seek source", http.StatusInternalServerError)
+				return
+			}
+		}
+		copySize = end - start + 1
+		dataReader = io.LimitReader(reader, copySize)
+	}
+
+	// Write to part file
+	partPath := filepath.Join(h.multipartDir(uploadID), fmt.Sprintf("part-%05d", partNum))
+	f, err := os.Create(partPath)
+	if err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	hash := md5.New()
+	written, err := io.Copy(f, io.TeeReader(dataReader, hash))
+	if err != nil {
+		os.Remove(partPath)
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	etag := fmt.Sprintf("\"%s\"", hex.EncodeToString(hash.Sum(nil)))
+
+	h.store.PutPart(uploadID, metadata.PartInfo{
+		PartNumber: partNum,
+		ETag:       etag,
+		Size:       written,
+	})
+
+	now := time.Now().UTC()
+
+	type copyPartResult struct {
+		XMLName      xml.Name `xml:"CopyPartResult"`
+		ETag         string   `xml:"ETag"`
+		LastModified string   `xml:"LastModified"`
+	}
+
+	writeXML(w, http.StatusOK, copyPartResult{
+		ETag:         etag,
+		LastModified: now.Format(time.RFC3339),
+	})
 }
 
 func generateUploadID() string {

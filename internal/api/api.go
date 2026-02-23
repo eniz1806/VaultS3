@@ -6,6 +6,7 @@ import (
 
 	"github.com/eniz1806/VaultS3/internal/backup"
 	"github.com/eniz1806/VaultS3/internal/config"
+	"github.com/eniz1806/VaultS3/internal/ratelimit"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
 	"github.com/eniz1806/VaultS3/internal/scanner"
@@ -26,6 +27,7 @@ type APIHandler struct {
 	scanner     *scanner.Scanner
 	tieringMgr  *tiering.Manager
 	backupSched *backup.Scheduler
+	rateLimiter *ratelimit.Limiter
 }
 
 func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Collector, cfg *config.Config, activity *ActivityLog) *APIHandler {
@@ -167,6 +169,10 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleTieringStatus(w, r)
 	case path == "/tiering/migrate" && r.Method == http.MethodPost:
 		h.handleTieringMigrate(w, r)
+
+	// Rate limit route
+	case path == "/ratelimit/status" && r.Method == http.MethodGet:
+		h.handleRateLimitStatus(w, r)
 
 	// Backup routes
 	case path == "/backups" && r.Method == http.MethodGet:
