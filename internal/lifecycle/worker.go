@@ -56,7 +56,7 @@ func (w *Worker) scan() {
 	rules := make(map[string]*metadata.LifecycleRule)
 	for _, b := range buckets {
 		rule, err := w.store.GetLifecycleRule(b.Name)
-		if err != nil {
+		if err != nil || rule == nil {
 			continue // no rule for this bucket
 		}
 		if rule.Status != "Enabled" {
