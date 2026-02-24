@@ -5,8 +5,8 @@ bin/
 *.exe
 
 # Data directories
-data/
-metadata/
+/data/
+/metadata/
 
 # Go
 vendor/
