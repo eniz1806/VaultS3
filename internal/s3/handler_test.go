@@ -17,14 +17,16 @@ type mockEngine struct {
 	dataDir string
 }
 
-func (m *mockEngine) CreateBucketDir(string) error                           { return nil }
-func (m *mockEngine) DeleteBucketDir(string) error                           { return nil }
-func (m *mockEngine) ObjectExists(string, string) bool                       { return false }
-func (m *mockEngine) ObjectSize(string, string) (int64, error)               { return 0, nil }
-func (m *mockEngine) DeleteObject(string, string) error                      { return nil }
-func (m *mockEngine) BucketSize(string) (int64, int64, error)                { return 0, 0, nil }
-func (m *mockEngine) DataDir() string                                        { return m.dataDir }
-func (m *mockEngine) ObjectPath(bucket, key string) string                   { return filepath.Join(m.dataDir, bucket, key) }
+func (m *mockEngine) CreateBucketDir(string) error             { return nil }
+func (m *mockEngine) DeleteBucketDir(string) error             { return nil }
+func (m *mockEngine) ObjectExists(string, string) bool         { return false }
+func (m *mockEngine) ObjectSize(string, string) (int64, error) { return 0, nil }
+func (m *mockEngine) DeleteObject(string, string) error        { return nil }
+func (m *mockEngine) BucketSize(string) (int64, int64, error)  { return 0, 0, nil }
+func (m *mockEngine) DataDir() string                          { return m.dataDir }
+func (m *mockEngine) ObjectPath(bucket, key string) string {
+	return filepath.Join(m.dataDir, bucket, key)
+}
 func (m *mockEngine) GetObject(string, string) (storage.ReadSeekCloser, int64, error) {
 	return nil, 0, nil
 }
