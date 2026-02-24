@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { listBuckets, createBucket, deleteBucket, type Bucket } from '../api/buckets'
+
+type SortField = 'name' | 'objectCount' | 'size' | 'createdAt'
+type SortDir = 'asc' | 'desc'
 
 export default function BucketsPage() {
   const [buckets, setBuckets] = useState<Bucket[]>([])
@@ -10,6 +13,10 @@ export default function BucketsPage() {
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [error, setError] = useState('')
+
+  // Sort state
+  const [sortField, setSortField] = useState<SortField>('name')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   const fetchBuckets = useCallback(async () => {
     try {
@@ -50,6 +57,44 @@ export default function BucketsPage() {
       setError(err instanceof Error ? err.message : 'Failed to delete bucket')
     }
   }
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const sortedBuckets = useMemo(() => {
+    const sorted = [...buckets]
+    sorted.sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'name': cmp = a.name.localeCompare(b.name); break
+        case 'objectCount': cmp = a.objectCount - b.objectCount; break
+        case 'size': cmp = a.size - b.size; break
+        case 'createdAt': cmp = (a.createdAt || '').localeCompare(b.createdAt || ''); break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [buckets, sortField, sortDir])
+
+  const SortHeader = ({ field, label }: { field: SortField; label: string }) => (
+    <th
+      onClick={() => handleSort(field)}
+      className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortField === field && (
+          <span className="text-indigo-600 dark:text-indigo-400">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+        )}
+      </span>
+    </th>
+  )
 
   if (loading) {
     return (
@@ -158,15 +203,15 @@ export default function BucketsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700">
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Objects</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Size</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</th>
+                <SortHeader field="name" label="Name" />
+                <SortHeader field="objectCount" label="Objects" />
+                <SortHeader field="size" label="Size" />
+                <SortHeader field="createdAt" label="Created" />
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-              {buckets.map((b) => (
+              {sortedBuckets.map((b) => (
                 <tr key={b.name} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                   <td className="px-4 py-3">
                     <Link

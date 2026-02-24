@@ -27,7 +27,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Per-bucket Prometheus metrics** — Request counts, bytes in/out, and errors with bucket labels at `/metrics`
 - **Prometheus metrics** — `/metrics` endpoint with storage, request, and runtime stats
 - **Presigned URLs** — Pre-authenticated URL generation
-- **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, file browser, access key management, activity log, storage stats, IAM management, audit trail viewer, search, notifications, replication status, lambda triggers, backup management, dark/light theme, responsive layout
+- **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, file browser (sortable columns, pagination, file preview, metadata panel), access key management, activity log, storage stats, IAM management, audit trail viewer (sortable, paginated), search (sortable, paginated), notifications, replication status, lambda triggers, backup management, bucket config (versioning toggle, lifecycle editor, CORS editor), dark/light theme, responsive layout
 - **Health checks** — `/health` (liveness) and `/ready` (readiness) endpoints for load balancers and Kubernetes
 - **Graceful shutdown** — Drains in-flight requests on SIGTERM/SIGINT with configurable timeout
 - **TLS support** — Optional HTTPS with configurable cert/key paths
@@ -126,6 +126,9 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Lambda Trigger List | `GET /api/v1/lambda/triggers` | Done |
 | Lambda Trigger CRUD | `GET/PUT/DELETE /api/v1/lambda/triggers/{bucket}` | Done |
 | Lambda Status | `GET /api/v1/lambda/status` | Done |
+| Bucket Versioning (Dashboard) | `GET/PUT /api/v1/buckets/{name}/versioning` | Done |
+| Bucket Lifecycle (Dashboard) | `GET/PUT/DELETE /api/v1/buckets/{name}/lifecycle` | Done |
+| Bucket CORS (Dashboard) | `GET/PUT/DELETE /api/v1/buckets/{name}/cors` | Done |
 
 ## Quick Start
 
@@ -1026,3 +1029,8 @@ VaultS3/
 - [x] Request latency histogram (Prometheus-compatible `vaults3_request_duration_seconds_bucket`)
 - [x] Go unit tests for 5 core packages (metadata, storage, IAM, ratelimit, search)
 - [x] Makefile targets: `make test-coverage`, `make lint`
+- [x] Dashboard polish: sortable table columns on all list pages (files, buckets, keys, audit, search)
+- [x] Dashboard polish: client-side pagination (50 items/page) on file browser and audit trail
+- [x] Dashboard polish: file preview panel (images, text files, JSON) with metadata sidebar
+- [x] Dashboard polish: bucket config UI (versioning toggle, lifecycle rule editor, CORS config editor)
+- [x] Dashboard API: versioning, lifecycle, and CORS endpoints for bucket settings management

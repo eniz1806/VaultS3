@@ -1,6 +1,11 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { searchObjects, type SearchResult } from '../api/search'
+
+type SortField = 'bucket' | 'key' | 'size' | 'content_type' | 'last_modified'
+type SortDir = 'asc' | 'desc'
+
+const PAGE_SIZE = 50
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -18,6 +23,13 @@ export default function SearchPage() {
   const [error, setError] = useState('')
   const [searched, setSearched] = useState(false)
 
+  // Sort state
+  const [sortField, setSortField] = useState<SortField>('key')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  // Pagination
+  const [page, setPage] = useState(0)
+
   const handleSearch = useCallback(async () => {
     if (!query.trim()) return
     setLoading(true)
@@ -26,12 +38,55 @@ export default function SearchPage() {
     try {
       const data = await searchObjects({ q: query.trim(), bucket: bucket || undefined, limit: 100 })
       setResults(data || [])
+      setPage(0)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed')
     } finally {
       setLoading(false)
     }
   }, [query, bucket])
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const sortedResults = useMemo(() => {
+    const sorted = [...results]
+    sorted.sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'bucket': cmp = a.bucket.localeCompare(b.bucket); break
+        case 'key': cmp = a.key.localeCompare(b.key); break
+        case 'size': cmp = a.size - b.size; break
+        case 'content_type': cmp = (a.content_type || '').localeCompare(b.content_type || ''); break
+        case 'last_modified': cmp = (a.last_modified || '').localeCompare(b.last_modified || ''); break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [results, sortField, sortDir])
+
+  const totalPages = Math.ceil(sortedResults.length / PAGE_SIZE)
+  const pagedResults = sortedResults.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  const SortHeader = ({ field, label }: { field: SortField; label: string }) => (
+    <th
+      onClick={() => handleSort(field)}
+      className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortField === field && (
+          <span className="text-indigo-600 dark:text-indigo-400">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+        )}
+      </span>
+    </th>
+  )
 
   return (
     <div>
@@ -63,42 +118,69 @@ export default function SearchPage() {
 
       {/* Results */}
       {searched && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-            <span className="text-sm text-gray-500 dark:text-gray-400">{results.length} result{results.length !== 1 ? 's' : ''}</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Bucket</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Key</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Size</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Content Type</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Modified</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-                {results.map((r, i) => (
-                  <tr key={i}
-                    onClick={() => navigate(`/buckets/${r.bucket}/files`)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer">
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{r.bucket}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300 font-mono text-xs max-w-xs truncate">{r.key}</td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatSize(r.size)}</td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{r.content_type || '-'}</td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                      {r.last_modified ? new Date(r.last_modified).toLocaleString() : '-'}
-                    </td>
+        <>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <span className="text-sm text-gray-500 dark:text-gray-400">{results.length} result{results.length !== 1 ? 's' : ''}</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <SortHeader field="bucket" label="Bucket" />
+                    <SortHeader field="key" label="Key" />
+                    <SortHeader field="size" label="Size" />
+                    <SortHeader field="content_type" label="Content Type" />
+                    <SortHeader field="last_modified" label="Last Modified" />
                   </tr>
-                ))}
-                {results.length === 0 && (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">No results found</td></tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                  {pagedResults.map((r, i) => (
+                    <tr key={i}
+                      onClick={() => navigate(`/buckets/${r.bucket}/files`)}
+                      className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer">
+                      <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{r.bucket}</td>
+                      <td className="px-4 py-3 text-gray-700 dark:text-gray-300 font-mono text-xs max-w-xs truncate">{r.key}</td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatSize(r.size)}</td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{r.content_type || '-'}</td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                        {r.last_modified ? new Date(r.last_modified).toLocaleString() : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                  {results.length === 0 && (
+                    <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">No results found</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-3 text-sm text-gray-500 dark:text-gray-400">
+              <span>
+                {sortedResults.length} results &middot; Page {page + 1} of {totalPages}
+              </span>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Prev
+                </button>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

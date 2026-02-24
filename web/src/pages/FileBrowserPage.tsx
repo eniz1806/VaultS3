@@ -1,7 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { listObjects, deleteObject, getDownloadUrl, type ObjectItem } from '../api/objects'
 import UploadDropzone from '../components/UploadDropzone'
+
+type SortField = 'name' | 'size' | 'type' | 'modified'
+type SortDir = 'asc' | 'desc'
+
+const PAGE_SIZE = 50
 
 export default function FileBrowserPage() {
   const { name: bucket } = useParams<{ name: string }>()
@@ -13,6 +18,18 @@ export default function FileBrowserPage() {
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
+  // Sort state
+  const [sortField, setSortField] = useState<SortField>('name')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  // Pagination
+  const [page, setPage] = useState(0)
+
+  // Preview / metadata panel
+  const [selectedFile, setSelectedFile] = useState<ObjectItem | null>(null)
+  const [previewContent, setPreviewContent] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+
   const fetchObjects = useCallback(async () => {
     if (!bucket) return
     setLoading(true)
@@ -20,6 +37,7 @@ export default function FileBrowserPage() {
     try {
       const data = await listObjects(bucket, prefix)
       setObjects(data.objects || [])
+      setPage(0)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to list objects')
     } finally {
@@ -29,12 +47,16 @@ export default function FileBrowserPage() {
 
   useEffect(() => { fetchObjects() }, [fetchObjects])
 
+  // Reset selection when navigating
+  useEffect(() => { setSelectedFile(null); setPreviewContent(null) }, [prefix])
+
   const handleDelete = async (key: string) => {
     if (!bucket) return
     setError('')
     try {
       await deleteObject(bucket, key)
       setDeleteTarget(null)
+      if (selectedFile?.key === key) { setSelectedFile(null); setPreviewContent(null) }
       fetchObjects()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete object')
@@ -49,7 +71,79 @@ export default function FileBrowserPage() {
     }
   }
 
-  // Breadcrumb segments
+  // Sort logic
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const sortedObjects = useMemo(() => {
+    const folders = objects.filter(o => o.isPrefix)
+    const files = objects.filter(o => !o.isPrefix)
+
+    files.sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'name': cmp = a.key.localeCompare(b.key); break
+        case 'size': cmp = a.size - b.size; break
+        case 'type': cmp = (a.contentType || '').localeCompare(b.contentType || ''); break
+        case 'modified': cmp = (a.lastModified || '').localeCompare(b.lastModified || ''); break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+
+    return [...folders, ...files]
+  }, [objects, sortField, sortDir])
+
+  // Pagination
+  const totalPages = Math.ceil(sortedObjects.length / PAGE_SIZE)
+  const pagedObjects = sortedObjects.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  // Preview logic
+  const handleSelectFile = async (obj: ObjectItem) => {
+    if (obj.isPrefix) return
+    setSelectedFile(obj)
+    setPreviewContent(null)
+
+    const ct = obj.contentType || ''
+    const ext = obj.key.split('.').pop()?.toLowerCase() || ''
+
+    // Image preview — use download URL directly
+    if (ct.startsWith('image/')) {
+      setPreviewContent('__image__')
+      return
+    }
+
+    // Text-based preview
+    const textTypes = ['text/', 'application/json', 'application/xml', 'application/javascript', 'application/yaml', 'application/x-yaml']
+    const textExts = ['txt', 'md', 'json', 'xml', 'yaml', 'yml', 'csv', 'log', 'js', 'ts', 'tsx', 'jsx', 'html', 'css', 'go', 'py', 'sh', 'toml', 'ini', 'cfg', 'env', 'sql']
+    const isText = textTypes.some(t => ct.startsWith(t)) || textExts.includes(ext)
+
+    if (isText && obj.size < 512 * 1024) {
+      setPreviewLoading(true)
+      try {
+        const url = getDownloadUrl(bucket!, obj.key)
+        const resp = await fetch(url)
+        if (resp.ok) {
+          const text = await resp.text()
+          setPreviewContent(text)
+        }
+      } catch {
+        setPreviewContent(null)
+      } finally {
+        setPreviewLoading(false)
+      }
+      return
+    }
+
+    // No preview available — just show metadata
+  }
+
+  // Breadcrumbs
   const breadcrumbs = prefix
     ? prefix.split('/').filter(Boolean).map((seg, i, arr) => ({
         label: seg,
@@ -59,148 +153,281 @@ export default function FileBrowserPage() {
 
   if (!bucket) return null
 
+  const SortHeader = ({ field, label }: { field: SortField; label: string }) => (
+    <th
+      onClick={() => handleSort(field)}
+      className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortField === field && (
+          <span className="text-indigo-600 dark:text-indigo-400">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+        )}
+      </span>
+    </th>
+  )
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 mb-1">
-            <Link to={`/buckets/${bucket}`} className="hover:text-indigo-600 dark:hover:text-indigo-400">
-              {bucket}
-            </Link>
-            <span>/</span>
-            <button onClick={() => navigatePrefix('')} className="hover:text-indigo-600 dark:hover:text-indigo-400">
-              files
-            </button>
-            {breadcrumbs.map((bc) => (
-              <span key={bc.prefix} className="flex items-center gap-1">
-                <span>/</span>
-                <button
-                  onClick={() => navigatePrefix(bc.prefix)}
-                  className="hover:text-indigo-600 dark:hover:text-indigo-400"
-                >
-                  {bc.label}
-                </button>
-              </span>
-            ))}
-          </div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Files</h2>
-        </div>
-      </div>
-
-      <div className="mb-4">
-        <UploadDropzone bucket={bucket} prefix={prefix} onUploaded={() => fetchObjects()} />
-      </div>
-
-      {error && (
-        <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Delete confirmation modal */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-sm mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Delete Object</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Are you sure you want to delete <strong className="break-all">{deleteTarget}</strong>?
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setDeleteTarget(null)}
-                className="px-4 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel
+    <div className="flex gap-4">
+      {/* Main content */}
+      <div className={`flex-1 min-w-0 ${selectedFile ? 'max-w-[calc(100%-320px)]' : ''}`}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 mb-1">
+              <Link to={`/buckets/${bucket}`} className="hover:text-indigo-600 dark:hover:text-indigo-400">
+                {bucket}
+              </Link>
+              <span>/</span>
+              <button onClick={() => navigatePrefix('')} className="hover:text-indigo-600 dark:hover:text-indigo-400">
+                files
               </button>
+              {breadcrumbs.map((bc) => (
+                <span key={bc.prefix} className="flex items-center gap-1">
+                  <span>/</span>
+                  <button
+                    onClick={() => navigatePrefix(bc.prefix)}
+                    className="hover:text-indigo-600 dark:hover:text-indigo-400"
+                  >
+                    {bc.label}
+                  </button>
+                </span>
+              ))}
+            </div>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Files</h2>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <UploadDropzone bucket={bucket} prefix={prefix} onUploaded={() => fetchObjects()} />
+        </div>
+
+        {error && (
+          <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* Delete confirmation modal */}
+        {deleteTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-sm mx-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Delete Object</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Are you sure you want to delete <strong className="break-all">{deleteTarget}</strong>?
+              </p>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  className="px-4 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDelete(deleteTarget)}
+                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+          </div>
+        ) : objects.length === 0 ? (
+          <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+            <svg className="w-12 h-12 mx-auto text-gray-400 dark:text-gray-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+            </svg>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">No files here yet</p>
+            <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">Upload files using the dropzone above</p>
+          </div>
+        ) : (
+          <>
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <SortHeader field="name" label="Name" />
+                    <SortHeader field="size" label="Size" />
+                    <SortHeader field="type" label="Type" />
+                    <SortHeader field="modified" label="Modified" />
+                    <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                  {pagedObjects.map((obj) => (
+                    <tr
+                      key={obj.key}
+                      className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer ${
+                        selectedFile?.key === obj.key ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''
+                      }`}
+                      onClick={() => obj.isPrefix ? navigatePrefix(obj.key) : handleSelectFile(obj)}
+                    >
+                      <td className="px-4 py-3">
+                        {obj.isPrefix ? (
+                          <span className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-medium">
+                            <FolderIcon />
+                            {displayName(obj.key, prefix)}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2 text-gray-900 dark:text-white">
+                            <FileIcon />
+                            {displayName(obj.key, prefix)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
+                        {obj.isPrefix ? '-' : formatSize(obj.size)}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
+                        {obj.isPrefix ? 'Folder' : (obj.contentType || '-')}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
+                        {obj.isPrefix ? '-' : formatDate(obj.lastModified)}
+                      </td>
+                      <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                        {!obj.isPrefix && (
+                          <div className="flex items-center justify-end gap-2">
+                            <a
+                              href={getDownloadUrl(bucket, obj.key)}
+                              className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                              title="Download"
+                            >
+                              <DownloadIcon />
+                            </a>
+                            <button
+                              onClick={() => setDeleteTarget(obj.key)}
+                              className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                              title="Delete"
+                            >
+                              <TrashIcon />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-3 text-sm text-gray-500 dark:text-gray-400">
+                <span>
+                  {sortedObjects.length} items &middot; Page {page + 1} of {totalPages}
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setPage(p => Math.max(0, p - 1))}
+                    disabled={page === 0}
+                    className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                    disabled={page >= totalPages - 1}
+                    className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Side panel — file metadata & preview */}
+      {selectedFile && (
+        <div className="w-80 flex-shrink-0">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 sticky top-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{displayName(selectedFile.key, prefix)}</h3>
               <button
-                onClick={() => handleDelete(deleteTarget)}
-                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors"
+                onClick={() => { setSelectedFile(null); setPreviewContent(null) }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Metadata */}
+            <div className="space-y-2 text-xs mb-4">
+              <MetaRow label="Key" value={selectedFile.key} />
+              <MetaRow label="Size" value={formatSize(selectedFile.size)} />
+              <MetaRow label="Type" value={selectedFile.contentType || '-'} />
+              <MetaRow label="Modified" value={selectedFile.lastModified ? new Date(selectedFile.lastModified).toLocaleString() : '-'} />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 mb-4">
+              <a
+                href={getDownloadUrl(bucket, selectedFile.key)}
+                className="flex-1 text-center px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
+              >
+                Download
+              </a>
+              <button
+                onClick={() => setDeleteTarget(selectedFile.key)}
+                className="px-3 py-1.5 rounded-lg border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-xs font-medium transition-colors"
               >
                 Delete
               </button>
             </div>
+
+            {/* Preview */}
+            {previewLoading && (
+              <div className="flex justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
+              </div>
+            )}
+
+            {previewContent === '__image__' && (
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                <img
+                  src={getDownloadUrl(bucket, selectedFile.key)}
+                  alt={selectedFile.key}
+                  className="w-full h-auto max-h-64 object-contain bg-gray-100 dark:bg-gray-900"
+                />
+              </div>
+            )}
+
+            {previewContent && previewContent !== '__image__' && (
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
+                  Preview
+                </div>
+                <pre className="p-3 text-xs text-gray-800 dark:text-gray-200 overflow-auto max-h-80 whitespace-pre-wrap font-mono bg-white dark:bg-gray-800">
+                  {previewContent.slice(0, 10000)}{previewContent.length > 10000 ? '\n\n... truncated ...' : ''}
+                </pre>
+              </div>
+            )}
+
+            {!previewLoading && previewContent === null && selectedFile && (
+              <div className="text-center py-6 text-xs text-gray-400 dark:text-gray-500">
+                No preview available
+              </div>
+            )}
           </div>
         </div>
       )}
+    </div>
+  )
+}
 
-      {loading ? (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
-        </div>
-      ) : objects.length === 0 ? (
-        <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-          <svg className="w-12 h-12 mx-auto text-gray-400 dark:text-gray-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
-          </svg>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">No files here yet</p>
-          <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">Upload files using the dropzone above</p>
-        </div>
-      ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 dark:border-gray-700">
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Size</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Modified</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-              {objects.map((obj) => (
-                <tr key={obj.key} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                  <td className="px-4 py-3">
-                    {obj.isPrefix ? (
-                      <button
-                        onClick={() => navigatePrefix(obj.key)}
-                        className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-medium hover:underline"
-                      >
-                        <FolderIcon />
-                        {displayName(obj.key, prefix)}
-                      </button>
-                    ) : (
-                      <span className="flex items-center gap-2 text-gray-900 dark:text-white">
-                        <FileIcon />
-                        {displayName(obj.key, prefix)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
-                    {obj.isPrefix ? '-' : formatSize(obj.size)}
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
-                    {obj.isPrefix ? 'Folder' : (obj.contentType || '-')}
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
-                    {obj.isPrefix ? '-' : formatDate(obj.lastModified)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {!obj.isPrefix && (
-                      <div className="flex items-center justify-end gap-2">
-                        <a
-                          href={getDownloadUrl(bucket, obj.key)}
-                          className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                          title="Download"
-                        >
-                          <DownloadIcon />
-                        </a>
-                        <button
-                          onClick={() => setDeleteTarget(obj.key)}
-                          className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                          title="Delete"
-                        >
-                          <TrashIcon />
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-gray-500 dark:text-gray-400">{label}</span>
+      <span className="text-gray-900 dark:text-white font-mono truncate max-w-[180px]" title={value}>{value}</span>
     </div>
   )
 }

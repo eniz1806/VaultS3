@@ -1,5 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { queryAudit, type AuditEntry } from '../api/audit'
+
+type SortField = 'time' | 'user' | 'action' | 'resource' | 'effect' | 'sourceIP' | 'statusCode'
+type SortDir = 'asc' | 'desc'
+
+const PAGE_SIZE = 50
 
 export default function AuditPage() {
   const [entries, setEntries] = useState<AuditEntry[]>([])
@@ -10,6 +15,13 @@ export default function AuditPage() {
   const [filterBucket, setFilterBucket] = useState('')
   const [limit, setLimit] = useState(100)
 
+  // Sort state
+  const [sortField, setSortField] = useState<SortField>('time')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
+  // Pagination
+  const [page, setPage] = useState(0)
+
   const fetchAudit = useCallback(async () => {
     try {
       const data = await queryAudit({
@@ -18,6 +30,7 @@ export default function AuditPage() {
         bucket: filterBucket || undefined,
       })
       setEntries(data || [])
+      setPage(0)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load audit trail')
     } finally {
@@ -32,6 +45,52 @@ export default function AuditPage() {
     const id = setInterval(fetchAudit, 10000)
     return () => clearInterval(id)
   }, [fetchAudit])
+
+  // Sort logic
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir(field === 'time' ? 'desc' : 'asc')
+    }
+  }
+
+  const sortedEntries = useMemo(() => {
+    const sorted = [...entries]
+    sorted.sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'time': cmp = (a.time || '').localeCompare(b.time || ''); break
+        case 'user': cmp = (a.user || '').localeCompare(b.user || ''); break
+        case 'action': cmp = (a.action || '').localeCompare(b.action || ''); break
+        case 'resource': cmp = (a.resource || '').localeCompare(b.resource || ''); break
+        case 'effect': cmp = (a.effect || '').localeCompare(b.effect || ''); break
+        case 'sourceIP': cmp = (a.sourceIP || '').localeCompare(b.sourceIP || ''); break
+        case 'statusCode': cmp = (a.statusCode || 0) - (b.statusCode || 0); break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [entries, sortField, sortDir])
+
+  // Pagination
+  const totalPages = Math.ceil(sortedEntries.length / PAGE_SIZE)
+  const pagedEntries = sortedEntries.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  const SortHeader = ({ field, label }: { field: SortField; label: string }) => (
+    <th
+      onClick={() => handleSort(field)}
+      className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortField === field && (
+          <span className="text-indigo-600 dark:text-indigo-400">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+        )}
+      </span>
+    </th>
+  )
 
   if (loading) {
     return (
@@ -76,17 +135,17 @@ export default function AuditPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700">
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Time</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Action</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Resource</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Effect</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Source IP</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                <SortHeader field="time" label="Time" />
+                <SortHeader field="user" label="User" />
+                <SortHeader field="action" label="Action" />
+                <SortHeader field="resource" label="Resource" />
+                <SortHeader field="effect" label="Effect" />
+                <SortHeader field="sourceIP" label="Source IP" />
+                <SortHeader field="statusCode" label="Status" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-              {entries.map((e, i) => (
+              {pagedEntries.map((e, i) => (
                 <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {new Date(e.time).toLocaleString()}
@@ -116,6 +175,31 @@ export default function AuditPage() {
           </table>
         </div>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-3 text-sm text-gray-500 dark:text-gray-400">
+          <span>
+            {sortedEntries.length} entries &middot; Page {page + 1} of {totalPages}
+          </span>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Prev
+            </button>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+              className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

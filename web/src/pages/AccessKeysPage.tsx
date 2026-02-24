@@ -1,5 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { listKeys, createKey, deleteKey, type AccessKey, type CreatedKey } from '../api/keys'
+
+type SortField = 'accessKey' | 'createdAt' | 'type'
+type SortDir = 'asc' | 'desc'
 
 export default function AccessKeysPage() {
   const [keys, setKeys] = useState<AccessKey[]>([])
@@ -9,6 +12,10 @@ export default function AccessKeysPage() {
   const [newKey, setNewKey] = useState<CreatedKey | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [copied, setCopied] = useState('')
+
+  // Sort state
+  const [sortField, setSortField] = useState<SortField>('accessKey')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   const fetchKeys = useCallback(async () => {
     try {
@@ -54,6 +61,43 @@ export default function AccessKeysPage() {
     setTimeout(() => setCopied(''), 2000)
   }
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const sortedKeys = useMemo(() => {
+    const sorted = [...keys]
+    sorted.sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'accessKey': cmp = a.accessKey.localeCompare(b.accessKey); break
+        case 'createdAt': cmp = (a.createdAt || '').localeCompare(b.createdAt || ''); break
+        case 'type': cmp = (a.isAdmin ? 1 : 0) - (b.isAdmin ? 1 : 0); break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [keys, sortField, sortDir])
+
+  const SortHeader = ({ field, label }: { field: SortField; label: string }) => (
+    <th
+      onClick={() => handleSort(field)}
+      className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortField === field && (
+          <span className="text-indigo-600 dark:text-indigo-400">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+        )}
+      </span>
+    </th>
+  )
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -84,7 +128,7 @@ export default function AccessKeysPage() {
         </div>
       )}
 
-      {/* New key modal — shown only once */}
+      {/* New key modal */}
       {newKey && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-md mx-4">
@@ -165,15 +209,15 @@ export default function AccessKeysPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 dark:border-gray-700">
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Access Key</th>
+              <SortHeader field="accessKey" label="Access Key" />
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Secret</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+              <SortHeader field="createdAt" label="Created" />
+              <SortHeader field="type" label="Type" />
               <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-            {keys.map((k) => (
+            {sortedKeys.map((k) => (
               <tr key={k.accessKey} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                 <td className="px-4 py-3 font-mono text-gray-900 dark:text-white">{k.accessKey}</td>
                 <td className="px-4 py-3 font-mono text-gray-500 dark:text-gray-400">{k.maskedSecret}</td>

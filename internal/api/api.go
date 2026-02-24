@@ -345,6 +345,37 @@ func (h *APIHandler) routeBucket(w http.ResponseWriter, r *http.Request, rest st
 		} else {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
+	case "versioning":
+		switch r.Method {
+		case http.MethodGet:
+			h.handleGetBucketVersioning(w, r, name)
+		case http.MethodPut:
+			h.handlePutBucketVersioning(w, r, name)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	case "lifecycle":
+		switch r.Method {
+		case http.MethodGet:
+			h.handleGetLifecycleRule(w, r, name)
+		case http.MethodPut:
+			h.handlePutLifecycleRule(w, r, name)
+		case http.MethodDelete:
+			h.handleDeleteLifecycleRule(w, r, name)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	case "cors":
+		switch r.Method {
+		case http.MethodGet:
+			h.handleGetCORSConfig(w, r, name)
+		case http.MethodPut:
+			h.handlePutCORSConfig(w, r, name)
+		case http.MethodDelete:
+			h.handleDeleteCORSConfig(w, r, name)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
 	default:
 		writeError(w, http.StatusNotFound, "not found")
 	}
