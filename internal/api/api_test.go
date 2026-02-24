@@ -257,12 +257,12 @@ func TestCORS_Preflight(t *testing.T) {
 func TestCORS_LocalhostAllowed(t *testing.T) {
 	h, _ := newTestAPI(t)
 	req := httptest.NewRequest("GET", "/api/v1/auth/oidc/config", nil)
-	req.Header.Set("Origin", "http://localhost:3000")
+	req.Header.Set("Origin", "http://localhost:9000")
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 
-	if rr.Header().Get("Access-Control-Allow-Origin") != "http://localhost:3000" {
-		t.Error("expected localhost origin to be allowed")
+	if rr.Header().Get("Access-Control-Allow-Origin") != "http://localhost:9000" {
+		t.Error("expected localhost origin on same port to be allowed")
 	}
 }
 

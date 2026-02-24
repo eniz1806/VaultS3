@@ -45,7 +45,13 @@ func (fs *FileSystem) objectPath(bucket, key string) string {
 }
 
 func (fs *FileSystem) versionPath(bucket, key, versionID string) string {
-	return filepath.Join(fs.dataDir, bucket, ".vs", key, versionID)
+	p := filepath.Join(fs.dataDir, bucket, ".vs", key, versionID)
+	// Prevent path traversal — resolved path must stay under bucket's .vs dir
+	vsDir := filepath.Join(fs.dataDir, bucket, ".vs") + string(filepath.Separator)
+	if !strings.HasPrefix(p+string(filepath.Separator), vsDir) {
+		return filepath.Join(fs.dataDir, bucket, ".vs", "invalid-version")
+	}
+	return p
 }
 
 func (fs *FileSystem) CreateBucketDir(bucket string) error {
@@ -63,17 +69,29 @@ func (fs *FileSystem) PutObject(bucket, key string, reader io.Reader, size int64
 		return 0, "", fmt.Errorf("create object dir: %w", err)
 	}
 
-	f, err := os.Create(objPath)
+	// Write to temp file first, then atomic rename to prevent corruption
+	tmpFile, err := os.CreateTemp(filepath.Dir(objPath), ".vaults3-tmp-*")
 	if err != nil {
-		return 0, "", fmt.Errorf("create object file: %w", err)
+		return 0, "", fmt.Errorf("create temp file: %w", err)
 	}
-	defer f.Close()
+	tmpPath := tmpFile.Name()
 
 	h := md5.New()
-	written, err := io.Copy(f, io.TeeReader(reader, h))
+	written, err := io.Copy(tmpFile, io.TeeReader(reader, h))
 	if err != nil {
-		os.Remove(objPath)
+		tmpFile.Close()
+		os.Remove(tmpPath)
 		return 0, "", fmt.Errorf("write object: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return 0, "", fmt.Errorf("close temp file: %w", err)
+	}
+
+	// Atomic rename
+	if err := os.Rename(tmpPath, objPath); err != nil {
+		os.Remove(tmpPath)
+		return 0, "", fmt.Errorf("rename object: %w", err)
 	}
 
 	etag := fmt.Sprintf("\"%x\"", h.Sum(nil))

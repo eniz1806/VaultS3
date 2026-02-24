@@ -86,8 +86,9 @@ func (e *EncryptedEngine) GetObject(bucket, key string) (ReadSeekCloser, int64, 
 	}
 	defer reader.Close()
 
-	// Read all encrypted data
-	encrypted, err := io.ReadAll(reader)
+	// Read all encrypted data (capped to max encrypted size + overhead)
+	maxRead := maxEncryptedSize + int64(e.gcm.NonceSize()) + 16 + 1 // nonce + GCM tag + 1
+	encrypted, err := io.ReadAll(io.LimitReader(reader, maxRead))
 	if err != nil {
 		return nil, 0, fmt.Errorf("read encrypted data: %w", err)
 	}
@@ -164,7 +165,8 @@ func (e *EncryptedEngine) GetObjectVersion(bucket, key, versionID string) (ReadS
 	}
 	defer reader.Close()
 
-	encrypted, err := io.ReadAll(reader)
+	maxRead := maxEncryptedSize + int64(e.gcm.NonceSize()) + 16 + 1
+	encrypted, err := io.ReadAll(io.LimitReader(reader, maxRead))
 	if err != nil {
 		return nil, 0, fmt.Errorf("read encrypted data: %w", err)
 	}

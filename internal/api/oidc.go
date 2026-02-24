@@ -300,8 +300,11 @@ func (v *OIDCValidator) ValidateToken(idToken string) (*OIDCClaims, error) {
 		return nil, fmt.Errorf("token issued in the future")
 	}
 
-	// Validate domain
-	if len(v.allowedDomains) > 0 && claims.Email != "" {
+	// Validate domain — if allowedDomains is configured, require a valid email
+	if len(v.allowedDomains) > 0 {
+		if claims.Email == "" {
+			return nil, fmt.Errorf("email claim required when domain filtering is enabled")
+		}
 		domain := emailDomain(claims.Email)
 		allowed := false
 		for _, d := range v.allowedDomains {
@@ -311,7 +314,7 @@ func (v *OIDCValidator) ValidateToken(idToken string) (*OIDCClaims, error) {
 			}
 		}
 		if !allowed {
-			return nil, fmt.Errorf("email domain %s not allowed", domain)
+			return nil, fmt.Errorf("email domain not allowed")
 		}
 	}
 

@@ -1042,7 +1042,17 @@ VaultS3 is designed with security in mind:
 - **OIDC SSRF prevention** — Issuer URL validated against loopback, private, and link-local addresses before JWKS discovery
 - **IPv6-safe rate limiting** — Uses `net.SplitHostPort` for correct IP extraction from IPv6 `[::1]:port` addresses
 - **OIDC authorization layer** — Dashboard admin routes (IAM, keys, STS, audit, settings, lambda, backups) restricted to admin user; OIDC users get read-only access
-- **Encryption size cap** — 1GB max object size for encrypted writes prevents OOM from 3x RAM amplification
+- **Encryption size cap** — 1GB max object size for encrypted reads/writes prevents OOM from 3x RAM amplification
+- **Compression size cap** — 1GB max decompressed size prevents gzip bomb DoS
+- **Version path traversal protection** — `versionId` parameter validated against directory escape in version storage
+- **BatchDelete lock enforcement** — Batch delete respects WORM/legal-hold and validates keys against path traversal
+- **SigV4 timestamp validation** — Requests with `X-Amz-Date` skewed more than 15 minutes are rejected (prevents replay)
+- **Presigned URL expiry cap** — Maximum 7 days (604800 seconds), matching AWS behavior
+- **Atomic file writes** — PutObject writes to temp file then renames, preventing corruption from concurrent writes
+- **Backup scheduler thread safety** — Atomic bool prevents concurrent backup races
+- **OIDC admin name reservation** — OIDC users cannot claim the "admin" username
+- **OIDC domain validation enforcement** — Tokens without email are rejected when domain filtering is enabled
+- **CORS port restriction** — Localhost CORS only allowed on the server's own port
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting policy and deployment best practices.
 

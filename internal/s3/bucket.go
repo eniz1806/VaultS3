@@ -222,7 +222,7 @@ func (h *BucketHandler) PutBucketQuota(w http.ResponseWriter, r *http.Request, b
 		MaxSizeBytes int64 `json:"max_size_bytes"`
 		MaxObjects   int64 `json:"max_objects"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeS3Error(w, "MalformedJSON", "Could not parse request body", http.StatusBadRequest)
 		return
 	}
@@ -444,6 +444,22 @@ func (h *BucketHandler) PutBucketWebsite(w http.ResponseWriter, r *http.Request,
 	if req.IndexDocument.Suffix == "" {
 		writeS3Error(w, "InvalidArgument", "IndexDocument Suffix is required", http.StatusBadRequest)
 		return
+	}
+
+	// Validate IndexDocument and ErrorDocument against path traversal
+	for _, segment := range strings.Split(req.IndexDocument.Suffix, "/") {
+		if segment == ".." {
+			writeS3Error(w, "InvalidArgument", "IndexDocument must not contain '..' segments", http.StatusBadRequest)
+			return
+		}
+	}
+	if req.ErrorDocument.Key != "" {
+		for _, segment := range strings.Split(req.ErrorDocument.Key, "/") {
+			if segment == ".." {
+				writeS3Error(w, "InvalidArgument", "ErrorDocument must not contain '..' segments", http.StatusBadRequest)
+				return
+			}
+		}
 	}
 
 	if err := h.store.PutWebsiteConfig(bucket, metadata.WebsiteConfig{
@@ -980,7 +996,7 @@ func (h *BucketHandler) PutBucketLambda(w http.ResponseWriter, r *http.Request, 
 	}
 
 	var cfg metadata.BucketLambdaConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&cfg); err != nil {
 		writeS3Error(w, "MalformedJSON", "Could not parse lambda configuration", http.StatusBadRequest)
 		return
 	}

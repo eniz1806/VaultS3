@@ -664,8 +664,41 @@ func (h *ObjectHandler) BatchDelete(w http.ResponseWriter, r *http.Request, buck
 		return
 	}
 
+	versioning, _ := h.store.GetBucketVersioning(bucket)
+
 	var result deleteResult
 	for _, obj := range req.Objects {
+		// Validate key against path traversal
+		invalid := false
+		for _, segment := range strings.Split(obj.Key, "/") {
+			if segment == ".." {
+				invalid = true
+				break
+			}
+		}
+		if invalid {
+			result.Errors = append(result.Errors, deleteError{
+				Key:     obj.Key,
+				Code:    "InvalidArgument",
+				Message: "Invalid key",
+			})
+			continue
+		}
+
+		// Check object lock for versioned objects
+		if versioning == "Enabled" {
+			if meta, err := h.store.GetObjectMeta(bucket, obj.Key); err == nil && meta.VersionID != "" {
+				if lockErr := h.checkObjectLock(bucket, obj.Key, meta.VersionID); lockErr != nil {
+					result.Errors = append(result.Errors, deleteError{
+						Key:     obj.Key,
+						Code:    "AccessDenied",
+						Message: lockErr.Error(),
+					})
+					continue
+				}
+			}
+		}
+
 		err := h.engine.DeleteObject(bucket, obj.Key)
 		if err != nil {
 			result.Errors = append(result.Errors, deleteError{

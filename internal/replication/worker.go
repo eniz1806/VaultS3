@@ -36,8 +36,8 @@ func validatePeerURL(rawURL string) error {
 		return fmt.Errorf("URL must not point to cloud metadata service")
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return fmt.Errorf("URL must not point to loopback or link-local address")
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
+			return fmt.Errorf("URL must not point to loopback, link-local, or private address")
 		}
 	}
 	return nil

@@ -108,14 +108,15 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Admin-only routes: IAM, keys, STS, audit, backups, settings, lambda, replication
+	// Admin-only routes: IAM, keys, STS, audit, backups, settings, lambda, presign
 	adminPaths := strings.HasPrefix(path, "/keys") ||
 		strings.HasPrefix(path, "/iam/") ||
 		strings.HasPrefix(path, "/sts/") ||
 		path == "/audit" ||
 		strings.HasPrefix(path, "/backups/trigger") ||
 		strings.HasPrefix(path, "/lambda/") ||
-		path == "/settings"
+		path == "/settings" ||
+		path == "/presign"
 
 	if adminPaths && !h.isAdminUser(r) {
 		writeError(w, http.StatusForbidden, "admin access required")
@@ -451,9 +452,12 @@ func (h *APIHandler) isAllowedOrigin(origin string, r *http.Request) bool {
 	if originHost == host {
 		return true
 	}
-	// Allow localhost variants for development
+	// Allow localhost only on the same port as the server
 	if parsed.Hostname() == "localhost" || parsed.Hostname() == "127.0.0.1" {
-		return true
+		serverPort := fmt.Sprintf("%d", h.cfg.Server.Port)
+		if parsed.Port() == serverPort || parsed.Port() == "" {
+			return true
+		}
 	}
 	return false
 }

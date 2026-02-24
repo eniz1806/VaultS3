@@ -94,6 +94,12 @@ func (h *APIHandler) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		userName = claims.Sub
 	}
 
+	// Prevent OIDC users from claiming the reserved "admin" username
+	if userName == "admin" {
+		writeError(w, http.StatusForbidden, "username 'admin' is reserved")
+		return
+	}
+
 	// Look up or auto-create IAM user
 	_, err = h.store.GetIAMUser(userName)
 	if err != nil {

@@ -243,8 +243,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// IP access check
-		if err := h.auth.CheckIPAccess(identity, clientIP); err != nil {
+		// IP access check — use RemoteAddr (tamper-proof), not X-Forwarded-For
+		if err := h.auth.CheckIPAccess(identity, rateLimitIP); err != nil {
 			if h.onAudit != nil {
 				action := mapMethodToAction(r.Method, bucket, key, r.URL.Query())
 				resource := formatResource(bucket, key)

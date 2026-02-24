@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/eniz1806/VaultS3/internal/config"
@@ -18,7 +19,7 @@ type Scheduler struct {
 	engine      storage.Engine
 	cfg         config.BackupConfig
 	lastRunHour int
-	running     bool
+	running     atomic.Bool
 }
 
 func NewScheduler(store *metadata.Store, engine storage.Engine, cfg config.BackupConfig) *Scheduler {
@@ -49,7 +50,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 // shouldRun checks if the backup should run based on cron schedule.
 // Simplified cron: only supports "M H * * *" format.
 func (s *Scheduler) shouldRun() bool {
-	if s.running {
+	if s.running.Load() {
 		return false
 	}
 
@@ -70,8 +71,8 @@ func (s *Scheduler) shouldRun() bool {
 }
 
 func (s *Scheduler) runBackup() {
-	s.running = true
-	defer func() { s.running = false }()
+	s.running.Store(true)
+	defer s.running.Store(false)
 
 	for _, target := range s.cfg.Targets {
 		backupType := "full"
@@ -159,7 +160,7 @@ func (s *Scheduler) backupToTarget(target config.BackupTarget, backupType string
 
 // TriggerBackup triggers an immediate backup.
 func (s *Scheduler) TriggerBackup() string {
-	if s.running {
+	if s.running.Load() {
 		return "backup already running"
 	}
 	go s.runBackup()
@@ -168,7 +169,7 @@ func (s *Scheduler) TriggerBackup() string {
 
 // IsRunning returns whether a backup is currently in progress.
 func (s *Scheduler) IsRunning() bool {
-	return s.running
+	return s.running.Load()
 }
 
 // ListRecords returns backup history.

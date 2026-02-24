@@ -582,25 +582,45 @@ func compareValues(a, b string) int {
 }
 
 func matchLike(val, pattern string) bool {
-	// Convert SQL LIKE pattern to regex
-	// % = .*, _ = .
-	regexPattern := "^"
-	for _, ch := range pattern {
-		switch ch {
+	// Simple glob-style LIKE matching without regex (avoids ReDoS)
+	// % = match any sequence, _ = match single character
+	// Case-insensitive
+	return matchLikeHelper(strings.ToLower(val), strings.ToLower(pattern))
+}
+
+func matchLikeHelper(val, pattern string) bool {
+	for len(pattern) > 0 {
+		switch pattern[0] {
 		case '%':
-			regexPattern += ".*"
+			// Skip consecutive % characters
+			for len(pattern) > 0 && pattern[0] == '%' {
+				pattern = pattern[1:]
+			}
+			if len(pattern) == 0 {
+				return true // trailing % matches everything
+			}
+			// Try matching the rest of the pattern at each position
+			for i := 0; i <= len(val); i++ {
+				if matchLikeHelper(val[i:], pattern) {
+					return true
+				}
+			}
+			return false
 		case '_':
-			regexPattern += "."
-		case '.', '(', ')', '[', ']', '{', '}', '+', '?', '^', '$', '|', '\\':
-			regexPattern += "\\" + string(ch)
+			if len(val) == 0 {
+				return false
+			}
+			val = val[1:]
+			pattern = pattern[1:]
 		default:
-			regexPattern += string(ch)
+			if len(val) == 0 || val[0] != pattern[0] {
+				return false
+			}
+			val = val[1:]
+			pattern = pattern[1:]
 		}
 	}
-	regexPattern += "$"
-
-	matched, _ := regexp.MatchString("(?i)"+regexPattern, val)
-	return matched
+	return len(val) == 0
 }
 
 func sortStrings(s []string) {

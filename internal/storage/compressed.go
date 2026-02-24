@@ -82,11 +82,17 @@ func (c *CompressedEngine) ObjectPath(bucket, key string) string {
 	return c.inner.ObjectPath(bucket, key)
 }
 
+// maxCompressedSize is the maximum object size for in-memory compression (1GB).
+const maxCompressedSize int64 = 1 * 1024 * 1024 * 1024
+
 // compressAndPut reads all data, compresses it, computes ETag of original, writes compressed.
 func (c *CompressedEngine) compressAndPut(reader io.Reader, putFn func(io.Reader, int64) (int64, string, error)) (int64, string, error) {
-	plaintext, err := io.ReadAll(reader)
+	plaintext, err := io.ReadAll(io.LimitReader(reader, maxCompressedSize+1))
 	if err != nil {
 		return 0, "", fmt.Errorf("read plaintext: %w", err)
+	}
+	if int64(len(plaintext)) > maxCompressedSize {
+		return 0, "", fmt.Errorf("object too large for compression (max %dMB)", maxCompressedSize/(1024*1024))
 	}
 
 	// Compute ETag of original data
@@ -132,9 +138,12 @@ func (c *CompressedEngine) getAndDecompress(getFn func() (ReadSeekCloser, int64,
 	}
 	defer gz.Close()
 
-	plaintext, err := io.ReadAll(gz)
+	plaintext, err := io.ReadAll(io.LimitReader(gz, maxCompressedSize+1))
 	if err != nil {
 		return nil, 0, fmt.Errorf("decompress: %w", err)
+	}
+	if int64(len(plaintext)) > maxCompressedSize {
+		return nil, 0, fmt.Errorf("decompressed data exceeds size limit")
 	}
 
 	return &bytesReadSeekCloser{Reader: bytes.NewReader(plaintext)}, int64(len(plaintext)), nil
