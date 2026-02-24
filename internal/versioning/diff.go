@@ -17,11 +17,11 @@ type DiffLine struct {
 }
 
 type DiffResult struct {
-	Type     string            `json:"type"` // "text" or "binary"
-	Lines    []DiffLine        `json:"lines,omitempty"`
+	Type     string               `json:"type"` // "text" or "binary"
+	Lines    []DiffLine           `json:"lines,omitempty"`
 	MetaDiff map[string][2]string `json:"meta_diff,omitempty"`
-	SizeA    int64             `json:"size_a"`
-	SizeB    int64             `json:"size_b"`
+	SizeA    int64                `json:"size_a"`
+	SizeB    int64                `json:"size_b"`
 }
 
 // Diff compares two versions of an object.

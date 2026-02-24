@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	gofuse "github.com/hanwen/go-fuse/v2/fuse"
 	"github.com/hanwen/go-fuse/v2/fs"
+	gofuse "github.com/hanwen/go-fuse/v2/fuse"
 )
 
 type MountConfig struct {

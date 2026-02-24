@@ -20,18 +20,18 @@ type requestMethodStat struct {
 }
 
 type statsResponse struct {
-	TotalBuckets  int                `json:"totalBuckets"`
-	TotalObjects  int64              `json:"totalObjects"`
-	TotalSize     int64              `json:"totalSize"`
-	UptimeSeconds float64            `json:"uptimeSeconds"`
-	Goroutines    int                `json:"goroutines"`
-	MemoryMB      float64            `json:"memoryMB"`
-	Buckets       []bucketStat       `json:"buckets"`
+	TotalBuckets     int                 `json:"totalBuckets"`
+	TotalObjects     int64               `json:"totalObjects"`
+	TotalSize        int64               `json:"totalSize"`
+	UptimeSeconds    float64             `json:"uptimeSeconds"`
+	Goroutines       int                 `json:"goroutines"`
+	MemoryMB         float64             `json:"memoryMB"`
+	Buckets          []bucketStat        `json:"buckets"`
 	RequestsByMethod []requestMethodStat `json:"requestsByMethod"`
-	TotalRequests int64              `json:"totalRequests"`
-	TotalErrors   int64              `json:"totalErrors"`
-	BytesIn       int64              `json:"bytesIn"`
-	BytesOut      int64              `json:"bytesOut"`
+	TotalRequests    int64               `json:"totalRequests"`
+	TotalErrors      int64               `json:"totalErrors"`
+	BytesIn          int64               `json:"bytesIn"`
+	BytesOut         int64               `json:"bytesOut"`
 }
 
 func (h *APIHandler) handleStats(w http.ResponseWriter, _ *http.Request) {

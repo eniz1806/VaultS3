@@ -13,29 +13,29 @@ import (
 )
 
 var (
-	bucketsBucket        = []byte("buckets")
-	keysBucket           = []byte("access_keys")
-	objectsBucket        = []byte("objects")
-	multipartBucket      = []byte("multipart_uploads")
-	partsBucket          = []byte("multipart_parts")
-	policiesBucket       = []byte("bucket_policies")
-	objectVersionsBucket = []byte("object_versions")
-	lifecycleBucket      = []byte("lifecycle_rules")
-	websitesBucket       = []byte("website_configs")
-	iamUsersBucket       = []byte("iam_users")
-	iamGroupsBucket      = []byte("iam_groups")
-	iamPoliciesBucket    = []byte("iam_policies")
-	corsBucket           = []byte("cors_configs")
-	auditBucket          = []byte("audit_trail")
-	notificationBucket   = []byte("notification_configs")
+	bucketsBucket           = []byte("buckets")
+	keysBucket              = []byte("access_keys")
+	objectsBucket           = []byte("objects")
+	multipartBucket         = []byte("multipart_uploads")
+	partsBucket             = []byte("multipart_parts")
+	policiesBucket          = []byte("bucket_policies")
+	objectVersionsBucket    = []byte("object_versions")
+	lifecycleBucket         = []byte("lifecycle_rules")
+	websitesBucket          = []byte("website_configs")
+	iamUsersBucket          = []byte("iam_users")
+	iamGroupsBucket         = []byte("iam_groups")
+	iamPoliciesBucket       = []byte("iam_policies")
+	corsBucket              = []byte("cors_configs")
+	auditBucket             = []byte("audit_trail")
+	notificationBucket      = []byte("notification_configs")
 	replicationQueueBucket  = []byte("replication_queue")
 	replicationStatusBucket = []byte("replication_status")
 	backupHistoryBucket     = []byte("backup_history")
 	versionTagsBucket       = []byte("version_tags")
-	lambdaTriggersBucket       = []byte("lambda_triggers")
-	encryptionConfigBucket     = []byte("encryption_configs")
-	publicAccessBlockBucket    = []byte("public_access_blocks")
-	loggingConfigBucket        = []byte("logging_configs")
+	lambdaTriggersBucket    = []byte("lambda_triggers")
+	encryptionConfigBucket  = []byte("encryption_configs")
+	publicAccessBlockBucket = []byte("public_access_blocks")
+	loggingConfigBucket     = []byte("logging_configs")
 )
 
 type Store struct {
@@ -58,7 +58,7 @@ type BucketInfo struct {
 	CreatedAt            time.Time         `json:"created_at"`
 	MaxSizeBytes         int64             `json:"max_size_bytes,omitempty"`         // 0 = unlimited
 	MaxObjects           int64             `json:"max_objects,omitempty"`            // 0 = unlimited
-	Versioning           string            `json:"versioning,omitempty"`            // "Enabled", "Suspended", or ""
+	Versioning           string            `json:"versioning,omitempty"`             // "Enabled", "Suspended", or ""
 	DefaultRetentionMode string            `json:"default_retention_mode,omitempty"` // "GOVERNANCE" or "COMPLIANCE"
 	DefaultRetentionDays int               `json:"default_retention_days,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
@@ -69,8 +69,8 @@ type AccessKey struct {
 	SecretKey    string    `json:"secret_key"`
 	CreatedAt    time.Time `json:"created_at"`
 	UserID       string    `json:"user_id,omitempty"`
-	ExpiresAt    int64     `json:"expires_at,omitempty"`    // unix timestamp, 0=never
-	SessionToken string    `json:"session_token,omitempty"` // STS session identifier
+	ExpiresAt    int64     `json:"expires_at,omitempty"`     // unix timestamp, 0=never
+	SessionToken string    `json:"session_token,omitempty"`  // STS session identifier
 	SourceUserID string    `json:"source_user_id,omitempty"` // user who created this STS key
 }
 
@@ -143,7 +143,7 @@ type BucketLoggingConfig struct {
 }
 
 type NotificationFilterRule struct {
-	Name  string `json:"name"`  // "prefix" or "suffix"
+	Name  string `json:"name"` // "prefix" or "suffix"
 	Value string `json:"value"`
 }
 
@@ -159,28 +159,28 @@ type BucketNotificationConfig struct {
 }
 
 type AuditEntry struct {
-	Time       int64  `json:"time"`       // unix nanos
-	Principal  string `json:"principal"`  // access key
+	Time       int64  `json:"time"`      // unix nanos
+	Principal  string `json:"principal"` // access key
 	UserID     string `json:"user_id"`
-	Action     string `json:"action"`     // s3:GetObject, etc.
-	Resource   string `json:"resource"`   // arn:aws:s3:::bucket/key
-	Effect     string `json:"effect"`     // Allow, Deny
+	Action     string `json:"action"`   // s3:GetObject, etc.
+	Resource   string `json:"resource"` // arn:aws:s3:::bucket/key
+	Effect     string `json:"effect"`   // Allow, Deny
 	SourceIP   string `json:"source_ip"`
 	StatusCode int    `json:"status_code"`
 }
 
 type ReplicationEvent struct {
-	ID         uint64 `json:"id"`
-	Type       string `json:"type"` // "put" or "delete"
-	Bucket     string `json:"bucket"`
-	Key        string `json:"key"`
-	VersionID  string `json:"version_id,omitempty"`
-	ETag       string `json:"etag,omitempty"`
-	Peer       string `json:"peer"`
-	Size       int64  `json:"size"`
-	RetryCount int    `json:"retry_count"`
-	NextRetryAt int64 `json:"next_retry_at"` // unix timestamp
-	CreatedAt  int64  `json:"created_at"`    // unix timestamp
+	ID          uint64 `json:"id"`
+	Type        string `json:"type"` // "put" or "delete"
+	Bucket      string `json:"bucket"`
+	Key         string `json:"key"`
+	VersionID   string `json:"version_id,omitempty"`
+	ETag        string `json:"etag,omitempty"`
+	Peer        string `json:"peer"`
+	Size        int64  `json:"size"`
+	RetryCount  int    `json:"retry_count"`
+	NextRetryAt int64  `json:"next_retry_at"` // unix timestamp
+	CreatedAt   int64  `json:"created_at"`    // unix timestamp
 }
 
 type ReplicationStatus struct {
@@ -230,9 +230,9 @@ type ObjectMeta struct {
 	IsLatest       bool              `json:"is_latest,omitempty"`
 	DeleteMarker   bool              `json:"delete_marker,omitempty"`
 	LegalHold      bool              `json:"legal_hold,omitempty"`
-	RetentionMode  string            `json:"retention_mode,omitempty"`  // "GOVERNANCE" or "COMPLIANCE"
-	RetentionUntil int64             `json:"retention_until,omitempty"` // unix timestamp
-	Tier           string            `json:"tier,omitempty"`            // "hot" or "cold", default "hot"
+	RetentionMode  string            `json:"retention_mode,omitempty"`   // "GOVERNANCE" or "COMPLIANCE"
+	RetentionUntil int64             `json:"retention_until,omitempty"`  // unix timestamp
+	Tier           string            `json:"tier,omitempty"`             // "hot" or "cold", default "hot"
 	LastAccessTime int64             `json:"last_access_time,omitempty"` // unix timestamp
 }
 

@@ -145,11 +145,11 @@ func (h *APIHandler) handleRollback(w http.ResponseWriter, r *http.Request) {
 	h.store.PutObjectMeta(newMeta)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":    "rolled back",
-		"bucket":    req.Bucket,
-		"key":       req.Key,
-		"from":      req.VersionID,
-		"size":      written,
-		"etag":      etag,
+		"status": "rolled back",
+		"bucket": req.Bucket,
+		"key":    req.Key,
+		"from":   req.VersionID,
+		"size":   written,
+		"etag":   etag,
 	})
 }

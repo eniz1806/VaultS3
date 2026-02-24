@@ -133,8 +133,8 @@ type inputSerialization struct {
 }
 
 type csvInput struct {
-	FileHeaderInfo string `xml:"FileHeaderInfo"` // USE, IGNORE, NONE
-	FieldDelimiter string `xml:"FieldDelimiter"`
+	FileHeaderInfo  string `xml:"FileHeaderInfo"` // USE, IGNORE, NONE
+	FieldDelimiter  string `xml:"FieldDelimiter"`
 	RecordDelimiter string `xml:"RecordDelimiter"`
 	QuoteCharacter  string `xml:"QuoteCharacter"`
 }
@@ -149,7 +149,7 @@ type outputSerialization struct {
 }
 
 type csvOutput struct {
-	FieldDelimiter string `xml:"FieldDelimiter"`
+	FieldDelimiter  string `xml:"FieldDelimiter"`
 	RecordDelimiter string `xml:"RecordDelimiter"`
 }
 
@@ -166,11 +166,11 @@ type selectQuery struct {
 }
 
 type condition struct {
-	column string
-	op     string // =, !=, <, >, <=, >=, LIKE, IS
-	value  string
-	logic  string // AND, OR (for chaining with next condition)
-	isNull bool   // for IS NULL / IS NOT NULL
+	column  string
+	op      string // =, !=, <, >, <=, >=, LIKE, IS
+	value   string
+	logic   string // AND, OR (for chaining with next condition)
+	isNull  bool   // for IS NULL / IS NOT NULL
 	notNull bool
 }
 

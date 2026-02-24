@@ -100,4 +100,3 @@ func (h *APIHandler) routeLambda(w http.ResponseWriter, r *http.Request, path st
 		writeError(w, http.StatusNotFound, "not found")
 	}
 }
-

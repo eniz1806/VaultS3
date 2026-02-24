@@ -27,11 +27,11 @@ type Collector struct {
 	engine storage.Engine
 
 	// Request counters by method
-	requestsTotal   [methodCount]atomic.Int64
-	requestErrors   atomic.Int64
-	bytesIn         atomic.Int64
-	bytesOut        atomic.Int64
-	startTime       time.Time
+	requestsTotal [methodCount]atomic.Int64
+	requestErrors atomic.Int64
+	bytesIn       atomic.Int64
+	bytesOut      atomic.Int64
+	startTime     time.Time
 
 	// Per-bucket metrics
 	bucketMu      sync.RWMutex

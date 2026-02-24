@@ -293,8 +293,8 @@ func (h *BucketHandler) GetBucketLifecycle(w http.ResponseWriter, r *http.Reques
 	}
 	type xmlRule struct {
 		Expiration xmlExpiration `xml:"Expiration"`
-		Filter     xmlFilter    `xml:"Filter"`
-		Status     string       `xml:"Status"`
+		Filter     xmlFilter     `xml:"Filter"`
+		Status     string        `xml:"Status"`
 	}
 	type xmlLifecycleConfig struct {
 		XMLName xml.Name  `xml:"LifecycleConfiguration"`
@@ -430,9 +430,9 @@ func (h *BucketHandler) GetBucketWebsite(w http.ResponseWriter, r *http.Request,
 		Key string `xml:"Key,omitempty"`
 	}
 	type xmlWebsiteConfig struct {
-		XMLName       xml.Name `xml:"WebsiteConfiguration"`
-		Xmlns         string   `xml:"xmlns,attr"`
-		IndexDocument xmlIndex `xml:"IndexDocument"`
+		XMLName       xml.Name  `xml:"WebsiteConfiguration"`
+		Xmlns         string    `xml:"xmlns,attr"`
+		IndexDocument xmlIndex  `xml:"IndexDocument"`
 		ErrorDocument *xmlError `xml:"ErrorDocument,omitempty"`
 	}
 
@@ -578,8 +578,8 @@ func (h *BucketHandler) PutBucketNotification(w http.ResponseWriter, r *http.Req
 		Filter xmlFilter `xml:"Filter"`
 	}
 	type xmlNotificationConfig struct {
-		XMLName xml.Name          `xml:"NotificationConfiguration"`
-		Topics  []xmlTopicConfig  `xml:"TopicConfiguration"`
+		XMLName xml.Name         `xml:"NotificationConfiguration"`
+		Topics  []xmlTopicConfig `xml:"TopicConfiguration"`
 	}
 
 	var req xmlNotificationConfig
@@ -640,23 +640,23 @@ func (h *BucketHandler) GetBucketNotification(w http.ResponseWriter, r *http.Req
 	}
 	type xmlS3Key struct {
 		XMLName     xml.Name        `xml:"S3Key"`
-		FilterRules []xmlFilterRule  `xml:"FilterRule"`
+		FilterRules []xmlFilterRule `xml:"FilterRule"`
 	}
 	type xmlFilter struct {
 		XMLName xml.Name `xml:"Filter"`
 		S3Key   xmlS3Key `xml:"S3Key"`
 	}
 	type xmlTopicConfig struct {
-		XMLName xml.Name  `xml:"TopicConfiguration"`
-		ID      string    `xml:"Id"`
-		Topic   string    `xml:"Topic"`
-		Events  []string  `xml:"Event"`
+		XMLName xml.Name   `xml:"TopicConfiguration"`
+		ID      string     `xml:"Id"`
+		Topic   string     `xml:"Topic"`
+		Events  []string   `xml:"Event"`
 		Filter  *xmlFilter `xml:"Filter,omitempty"`
 	}
 	type xmlNotificationConfig struct {
-		XMLName xml.Name           `xml:"NotificationConfiguration"`
-		Xmlns   string             `xml:"xmlns,attr"`
-		Topics  []xmlTopicConfig   `xml:"TopicConfiguration"`
+		XMLName xml.Name         `xml:"NotificationConfiguration"`
+		Xmlns   string           `xml:"xmlns,attr"`
+		Topics  []xmlTopicConfig `xml:"TopicConfiguration"`
 	}
 
 	resp := xmlNotificationConfig{
@@ -841,7 +841,7 @@ func (h *BucketHandler) PutBucketLogging(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	var req struct {
-		XMLName       xml.Name `xml:"BucketLoggingStatus"`
+		XMLName        xml.Name `xml:"BucketLoggingStatus"`
 		LoggingEnabled *struct {
 			TargetBucket string `xml:"TargetBucket"`
 			TargetPrefix string `xml:"TargetPrefix"`

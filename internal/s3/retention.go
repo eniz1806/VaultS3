@@ -75,10 +75,10 @@ func (h *ObjectHandler) GetBucketObjectLockConfig(w http.ResponseWriter, r *http
 		DefaultRetention defaultRetention `xml:"DefaultRetention"`
 	}
 	type objectLockConfig struct {
-		XMLName            xml.Name `xml:"ObjectLockConfiguration"`
-		Xmlns              string   `xml:"xmlns,attr"`
-		ObjectLockEnabled  string   `xml:"ObjectLockEnabled"`
-		Rule               *rule    `xml:"Rule,omitempty"`
+		XMLName           xml.Name `xml:"ObjectLockConfiguration"`
+		Xmlns             string   `xml:"xmlns,attr"`
+		ObjectLockEnabled string   `xml:"ObjectLockEnabled"`
+		Rule              *rule    `xml:"Rule,omitempty"`
 	}
 
 	resp := objectLockConfig{

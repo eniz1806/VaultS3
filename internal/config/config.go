@@ -78,11 +78,11 @@ type BackupTarget struct {
 }
 
 type BackupConfig struct {
-	Enabled     bool           `yaml:"enabled"`
-	Targets     []BackupTarget `yaml:"targets"`
-	ScheduleCron string        `yaml:"schedule_cron"`
-	RetentionDays int          `yaml:"retention_days"`
-	Incremental  bool          `yaml:"incremental"`
+	Enabled       bool           `yaml:"enabled"`
+	Targets       []BackupTarget `yaml:"targets"`
+	ScheduleCron  string         `yaml:"schedule_cron"`
+	RetentionDays int            `yaml:"retention_days"`
+	Incremental   bool           `yaml:"incremental"`
 }
 
 type ScannerConfig struct {
@@ -105,16 +105,16 @@ type ReplicationPeer struct {
 type ReplicationConfig struct {
 	Enabled          bool              `yaml:"enabled"`
 	Peers            []ReplicationPeer `yaml:"peers"`
-	ScanIntervalSecs int              `yaml:"scan_interval_secs"`
-	MaxRetries       int              `yaml:"max_retries"`
-	BatchSize        int              `yaml:"batch_size"`
+	ScanIntervalSecs int               `yaml:"scan_interval_secs"`
+	MaxRetries       int               `yaml:"max_retries"`
+	BatchSize        int               `yaml:"batch_size"`
 }
 
 type NotificationsConfig struct {
-	MaxWorkers  int              `yaml:"max_workers"`
-	QueueSize   int              `yaml:"queue_size"`
-	TimeoutSecs int              `yaml:"timeout_secs"`
-	MaxRetries  int              `yaml:"max_retries"`
+	MaxWorkers  int               `yaml:"max_workers"`
+	QueueSize   int               `yaml:"queue_size"`
+	TimeoutSecs int               `yaml:"timeout_secs"`
+	MaxRetries  int               `yaml:"max_retries"`
 	Kafka       KafkaNotifyConfig `yaml:"kafka"`
 	NATS        NATSNotifyConfig  `yaml:"nats"`
 	Redis       RedisNotifyConfig `yaml:"redis"`

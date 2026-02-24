@@ -20,10 +20,10 @@ import (
 	"github.com/eniz1806/VaultS3/internal/config"
 	"github.com/eniz1806/VaultS3/internal/dashboard"
 	"github.com/eniz1806/VaultS3/internal/lambda"
-	"github.com/eniz1806/VaultS3/internal/middleware"
 	"github.com/eniz1806/VaultS3/internal/lifecycle"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
+	"github.com/eniz1806/VaultS3/internal/middleware"
 	"github.com/eniz1806/VaultS3/internal/notify"
 	"github.com/eniz1806/VaultS3/internal/ratelimit"
 	"github.com/eniz1806/VaultS3/internal/replication"
@@ -35,22 +35,22 @@ import (
 )
 
 type Server struct {
-	cfg       *config.Config
-	store     *metadata.Store
-	engine    storage.Engine
-	s3h       *s3.Handler
-	metrics   *metrics.Collector
-	activity  *api.ActivityLog
-	accessLog    *accesslog.AccessLogger
-	notifyDisp   *notify.Dispatcher
-	replWorker   *replication.Worker
-	searchIndex  *search.Index
-	scanWorker   *scanner.Scanner
-	tieringMgr   *tiering.Manager
-	backupSched  *backup.Scheduler
-	rateLimiter     *ratelimit.Limiter
-	lambdaMgr       *lambda.TriggerManager
-	accessUpdater   *metadata.AccessUpdater
+	cfg           *config.Config
+	store         *metadata.Store
+	engine        storage.Engine
+	s3h           *s3.Handler
+	metrics       *metrics.Collector
+	activity      *api.ActivityLog
+	accessLog     *accesslog.AccessLogger
+	notifyDisp    *notify.Dispatcher
+	replWorker    *replication.Worker
+	searchIndex   *search.Index
+	scanWorker    *scanner.Scanner
+	tieringMgr    *tiering.Manager
+	backupSched   *backup.Scheduler
+	rateLimiter   *ratelimit.Limiter
+	lambdaMgr     *lambda.TriggerManager
+	accessUpdater *metadata.AccessUpdater
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -280,22 +280,22 @@ func New(cfg *config.Config) (*Server, error) {
 	initBuiltinPolicies(store)
 
 	return &Server{
-		cfg:         cfg,
-		store:       store,
-		engine:      engine,
-		s3h:         s3h,
-		metrics:     mc,
-		activity:    activityLog,
-		accessLog:   accessLogger,
-		notifyDisp:  notifyDispatcher,
-		replWorker:  replWorker,
-		searchIndex: searchIdx,
-		scanWorker:  scanWorker,
-		tieringMgr:  tieringMgr,
-		backupSched: backupSched,
-		rateLimiter:    rateLimiter,
-		lambdaMgr:      lambdaMgr,
-		accessUpdater:  accessUpdater,
+		cfg:           cfg,
+		store:         store,
+		engine:        engine,
+		s3h:           s3h,
+		metrics:       mc,
+		activity:      activityLog,
+		accessLog:     accessLogger,
+		notifyDisp:    notifyDispatcher,
+		replWorker:    replWorker,
+		searchIndex:   searchIdx,
+		scanWorker:    scanWorker,
+		tieringMgr:    tieringMgr,
+		backupSched:   backupSched,
+		rateLimiter:   rateLimiter,
+		lambdaMgr:     lambdaMgr,
+		accessUpdater: accessUpdater,
 	}, nil
 }
 
