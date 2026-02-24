@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { listKeys, createKey, deleteKey, type AccessKey, type CreatedKey } from '../api/keys'
+import { useToast } from '../hooks/useToast'
 
 type SortField = 'accessKey' | 'createdAt' | 'type'
 type SortDir = 'asc' | 'desc'
@@ -12,6 +13,7 @@ export default function AccessKeysPage() {
   const [newKey, setNewKey] = useState<CreatedKey | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [copied, setCopied] = useState('')
+  const { addToast } = useToast()
 
   // Sort state
   const [sortField, setSortField] = useState<SortField>('accessKey')
@@ -36,9 +38,10 @@ export default function AccessKeysPage() {
     try {
       const key = await createKey()
       setNewKey(key)
+      addToast('success', 'Access key created')
       fetchKeys()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create key')
+      addToast('error', err instanceof Error ? err.message : 'Failed to create key')
     } finally {
       setCreating(false)
     }
@@ -49,9 +52,10 @@ export default function AccessKeysPage() {
     try {
       await deleteKey(accessKey)
       setDeleteTarget(null)
+      addToast('success', 'Access key revoked')
       fetchKeys()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete key')
+      addToast('error', err instanceof Error ? err.message : 'Failed to delete key')
     }
   }
 

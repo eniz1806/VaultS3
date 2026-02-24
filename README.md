@@ -27,7 +27,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Per-bucket Prometheus metrics** — Request counts, bytes in/out, and errors with bucket labels at `/metrics`
 - **Prometheus metrics** — `/metrics` endpoint with storage, request, and runtime stats
 - **Presigned URLs** — Pre-authenticated URL generation
-- **Web dashboard** — Built-in React UI at `/dashboard/` with home overview page, file browser (sortable columns, pagination, file preview, metadata panel, version history panel with diff viewer/rollback/tagging, multi-select, bulk delete, bulk zip download, breadcrumb navigation), drag-and-drop file and folder upload, copy-to-clipboard buttons, access key management, activity log, storage stats with auto-refresh, read-only settings viewer, IAM management, audit trail viewer (sortable, paginated), search (sortable, paginated), notifications, replication status, lambda triggers, backup management, bucket config (versioning toggle with status indicator, lifecycle editor, CORS editor), keyboard shortcuts (`/` search, `?` help), dark/light theme, responsive layout
+- **Web dashboard** — Built-in React UI at `/dashboard/` with home overview page, file browser (sortable columns, pagination, file preview, metadata panel, version history panel with diff viewer/rollback/tagging, multi-select, bulk delete, bulk zip download, breadcrumb navigation), drag-and-drop file and folder upload, copy-to-clipboard buttons, access key management, activity log, storage stats with auto-refresh, read-only settings viewer, IAM management, audit trail viewer (sortable, paginated), search (sortable, paginated), notifications, replication status, lambda triggers, backup management, bucket config (versioning toggle with status indicator, lifecycle editor, CORS editor), keyboard shortcuts (`/` search, `?` help), toast notifications (success/error/info), dark/light theme, responsive layout
 - **Health checks** — `/health` (liveness) and `/ready` (readiness) endpoints for load balancers and Kubernetes
 - **Graceful shutdown** — Drains in-flight requests on SIGTERM/SIGINT with configurable timeout
 - **TLS support** — Optional HTTPS with configurable cert/key paths
@@ -1072,3 +1072,6 @@ VaultS3/
 - [x] Input validation (DNS-compatible bucket names, object key constraints)
 - [x] Object versioning dashboard UI (version list panel, diff viewer, rollback, version tagging, bucket versioning indicator)
 - [x] Version list API (`GET /api/v1/versions?bucket=X&key=Y`)
+- [x] Toast notification system (success/error/info toasts, bottom-right stack, auto-dismiss 5s)
+- [x] Sortable table columns on all dashboard pages (notifications, backups, lambda triggers, replication queue)
+- [x] Enhanced bucket creation wizard (optional versioning toggle + auto-expire lifecycle rule)

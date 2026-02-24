@@ -1,11 +1,16 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getReplicationStatus, getReplicationQueue, type ReplicationStatus, type ReplicationEvent } from '../api/replication'
+
+type RSortField = 'type' | 'bucket' | 'key' | 'peer' | 'retryCount'
+type RSortDir = 'asc' | 'desc'
 
 export default function ReplicationPage() {
   const [status, setStatus] = useState<ReplicationStatus | null>(null)
   const [queue, setQueue] = useState<ReplicationEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [rSortField, setRSortField] = useState<RSortField>('bucket')
+  const [rSortDir, setRSortDir] = useState<RSortDir>('asc')
 
   const fetchData = useCallback(async () => {
     try {
@@ -24,6 +29,45 @@ export default function ReplicationPage() {
     const id = setInterval(fetchData, 10000)
     return () => clearInterval(id)
   }, [fetchData])
+
+  const handleRSort = (field: RSortField) => {
+    if (rSortField === field) {
+      setRSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setRSortField(field)
+      setRSortDir('asc')
+    }
+  }
+
+  const sortedQueue = useMemo(() => {
+    const s = [...queue]
+    s.sort((a, b) => {
+      let cmp = 0
+      switch (rSortField) {
+        case 'type': cmp = a.type.localeCompare(b.type); break
+        case 'bucket': cmp = a.bucket.localeCompare(b.bucket); break
+        case 'key': cmp = a.key.localeCompare(b.key); break
+        case 'peer': cmp = a.peer.localeCompare(b.peer); break
+        case 'retryCount': cmp = a.retryCount - b.retryCount; break
+      }
+      return rSortDir === 'asc' ? cmp : -cmp
+    })
+    return s
+  }, [queue, rSortField, rSortDir])
+
+  const RSortHeader = ({ field, label }: { field: RSortField; label: string }) => (
+    <th
+      onClick={() => handleRSort(field)}
+      className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {rSortField === field && (
+          <span className="text-indigo-600 dark:text-indigo-400">{rSortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+        )}
+      </span>
+    </th>
+  )
 
   if (loading) {
     return (
@@ -104,16 +148,16 @@ export default function ReplicationPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 dark:border-gray-700">
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Bucket</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Key</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Peer</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Retries</th>
+              <RSortHeader field="type" label="Type" />
+              <RSortHeader field="bucket" label="Bucket" />
+              <RSortHeader field="key" label="Key" />
+              <RSortHeader field="peer" label="Peer" />
+              <RSortHeader field="retryCount" label="Retries" />
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Next Retry</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-            {queue.map((e, i) => (
+            {sortedQueue.map((e, i) => (
               <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                 <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{e.type}</td>
                 <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{e.bucket}</td>

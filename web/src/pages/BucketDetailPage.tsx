@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { useToast } from '../hooks/useToast'
 import {
   getBucket, setBucketPolicy, setBucketQuota,
   getBucketVersioning, setBucketVersioning,
@@ -13,7 +14,7 @@ export default function BucketDetailPage() {
   const [bucket, setBucket] = useState<Bucket | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
+  const { addToast } = useToast()
 
   // Quota state
   const [maxSizeBytes, setMaxSizeBytes] = useState('')
@@ -74,7 +75,7 @@ export default function BucketDetailPage() {
       .finally(() => setLoading(false))
   }, [name])
 
-  const flash = (msg: string) => { setSuccess(msg); setTimeout(() => setSuccess(''), 3000) }
+  const flash = (msg: string) => { addToast('success', msg) }
 
   const handleSaveQuota = async () => {
     if (!name) return
@@ -202,11 +203,6 @@ export default function BucketDetailPage() {
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm">
           {error}
-        </div>
-      )}
-      {success && (
-        <div className="mb-4 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-sm">
-          {success}
         </div>
       )}
 

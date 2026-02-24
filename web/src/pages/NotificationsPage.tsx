@@ -1,10 +1,15 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { listNotifications, type NotificationConfig } from '../api/notifications'
+
+type SortField = 'bucket' | 'webhookURL' | 'events'
+type SortDir = 'asc' | 'desc'
 
 export default function NotificationsPage() {
   const [configs, setConfigs] = useState<NotificationConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [sortField, setSortField] = useState<SortField>('bucket')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   const fetchData = useCallback(async () => {
     try {
@@ -18,6 +23,43 @@ export default function NotificationsPage() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const sorted = useMemo(() => {
+    const s = [...configs]
+    s.sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'bucket': cmp = a.bucket.localeCompare(b.bucket); break
+        case 'webhookURL': cmp = (a.webhookURL || '').localeCompare(b.webhookURL || ''); break
+        case 'events': cmp = (a.events?.length || 0) - (b.events?.length || 0); break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return s
+  }, [configs, sortField, sortDir])
+
+  const SortHeader = ({ field, label }: { field: SortField; label: string }) => (
+    <th
+      onClick={() => handleSort(field)}
+      className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortField === field && (
+          <span className="text-indigo-600 dark:text-indigo-400">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+        )}
+      </span>
+    </th>
+  )
 
   if (loading) {
     return (
@@ -50,13 +92,13 @@ export default function NotificationsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700">
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Bucket</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Webhook URL</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Events</th>
+                <SortHeader field="bucket" label="Bucket" />
+                <SortHeader field="webhookURL" label="Webhook URL" />
+                <SortHeader field="events" label="Events" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-              {configs.map((c, i) => (
+              {sorted.map((c, i) => (
                 <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{c.bucket}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs max-w-sm truncate">{c.webhookURL}</td>

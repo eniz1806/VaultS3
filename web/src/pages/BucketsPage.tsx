@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { listBuckets, createBucket, deleteBucket, type Bucket } from '../api/buckets'
+import { listBuckets, createBucket, deleteBucket, setBucketVersioning } from '../api/buckets'
+import { setLifecycleRule } from '../api/buckets'
+import type { Bucket } from '../api/buckets'
+import { useToast } from '../hooks/useToast'
 
 type SortField = 'name' | 'objectCount' | 'size' | 'createdAt'
 type SortDir = 'asc' | 'desc'
@@ -13,6 +16,11 @@ export default function BucketsPage() {
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const { addToast } = useToast()
+
+  // Enhanced create options
+  const [enableVersioning, setEnableVersioning] = useState(false)
+  const [autoExpireDays, setAutoExpireDays] = useState('')
 
   // Sort state
   const [sortField, setSortField] = useState<SortField>('name')
@@ -37,11 +45,22 @@ export default function BucketsPage() {
     setError('')
     try {
       await createBucket(newName.trim())
+      // Apply optional versioning
+      if (enableVersioning) {
+        try { await setBucketVersioning(newName.trim(), 'Enabled') } catch {}
+      }
+      // Apply optional lifecycle
+      if (autoExpireDays && Number(autoExpireDays) > 0) {
+        try { await setLifecycleRule(newName.trim(), { expirationDays: Number(autoExpireDays), prefix: '', status: 'Enabled' }) } catch {}
+      }
       setNewName('')
       setShowCreate(false)
+      setEnableVersioning(false)
+      setAutoExpireDays('')
+      addToast('success', `Bucket "${newName.trim()}" created`)
       fetchBuckets()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create bucket')
+      addToast('error', err instanceof Error ? err.message : 'Failed to create bucket')
     } finally {
       setCreating(false)
     }
@@ -52,9 +71,10 @@ export default function BucketsPage() {
     try {
       await deleteBucket(name)
       setDeleteTarget(null)
+      addToast('success', `Bucket "${name}" deleted`)
       fetchBuckets()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete bucket')
+      addToast('error', err instanceof Error ? err.message : 'Failed to delete bucket')
     }
   }
 
@@ -139,9 +159,31 @@ export default function BucketsPage() {
               placeholder="my-bucket"
               autoFocus
             />
+            <div className="space-y-3 mb-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={enableVersioning}
+                  onChange={e => setEnableVersioning(e.target.checked)}
+                  className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Enable versioning</span>
+              </label>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Auto-expire after (days)</label>
+                <input
+                  type="number"
+                  value={autoExpireDays}
+                  onChange={e => setAutoExpireDays(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                  placeholder="Leave empty for no expiration"
+                  min="1"
+                />
+              </div>
+            </div>
             <div className="flex gap-2 justify-end">
               <button
-                onClick={() => { setShowCreate(false); setNewName('') }}
+                onClick={() => { setShowCreate(false); setNewName(''); setEnableVersioning(false); setAutoExpireDays('') }}
                 className="px-4 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               >
                 Cancel

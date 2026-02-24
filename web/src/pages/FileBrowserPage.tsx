@@ -6,6 +6,7 @@ import { listVersions, getVersionTags, createVersionTag, deleteVersionTag, rollb
 import UploadDropzone from '../components/UploadDropzone'
 import CopyButton from '../components/CopyButton'
 import VersionDiffViewer from '../components/VersionDiffViewer'
+import { useToast } from '../hooks/useToast'
 
 type SortField = 'name' | 'size' | 'type' | 'modified'
 type SortDir = 'asc' | 'desc'
@@ -21,6 +22,7 @@ export default function FileBrowserPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const { addToast } = useToast()
 
   // Sort state
   const [sortField, setSortField] = useState<SortField>('name')
@@ -77,6 +79,7 @@ export default function FileBrowserPage() {
     try {
       await rollbackVersion(bucket, selectedFile.key, versionId)
       setRollbackTarget(null)
+      addToast('success', 'Version rolled back')
       fetchObjects()
       // Refresh versions
       const [v, t] = await Promise.all([
@@ -142,9 +145,10 @@ export default function FileBrowserPage() {
       await deleteObject(bucket, key)
       setDeleteTarget(null)
       if (selectedFile?.key === key) { setSelectedFile(null); setPreviewContent(null) }
+      addToast('success', 'Object deleted')
       fetchObjects()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete object')
+      addToast('error', err instanceof Error ? err.message : 'Failed to delete object')
     }
   }
 
@@ -153,6 +157,7 @@ export default function FileBrowserPage() {
     setBulkDeleting(true)
     setError('')
     try {
+      const count = selectedKeys.size
       await bulkDeleteObjects(bucket, Array.from(selectedKeys))
       setShowBulkDeleteModal(false)
       setSelectedKeys(new Set())
@@ -160,9 +165,10 @@ export default function FileBrowserPage() {
         setSelectedFile(null)
         setPreviewContent(null)
       }
+      addToast('success', `${count} object${count !== 1 ? 's' : ''} deleted`)
       fetchObjects()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk delete failed')
+      addToast('error', err instanceof Error ? err.message : 'Bulk delete failed')
     } finally {
       setBulkDeleting(false)
     }

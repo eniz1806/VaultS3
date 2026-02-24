@@ -1,5 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getLambdaStatus, listLambdaTriggers, deleteBucketTriggers, type LambdaStatus, type BucketTriggers } from '../api/lambda'
+import { useToast } from '../hooks/useToast'
+
+type LSortField = 'bucket' | 'functionURL' | 'events' | 'keyFilter'
+type LSortDir = 'asc' | 'desc'
 
 export default function LambdaPage() {
   const [status, setStatus] = useState<LambdaStatus | null>(null)
@@ -7,6 +11,9 @@ export default function LambdaPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const { addToast } = useToast()
+  const [lSortField, setLSortField] = useState<LSortField>('bucket')
+  const [lSortDir, setLSortDir] = useState<LSortDir>('asc')
 
   const fetchData = useCallback(async () => {
     try {
@@ -27,11 +34,51 @@ export default function LambdaPage() {
     try {
       await deleteBucketTriggers(bucket)
       setDeleteTarget(null)
+      addToast('success', `Triggers for "${bucket}" deleted`)
       fetchData()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed')
+      addToast('error', err instanceof Error ? err.message : 'Delete failed')
     }
   }
+
+  const handleLSort = (field: LSortField) => {
+    if (lSortField === field) {
+      setLSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setLSortField(field)
+      setLSortDir('asc')
+    }
+  }
+
+  // Flatten triggers for sorting
+  const flatTriggers = useMemo(() => {
+    const flat = triggers.flatMap(bt => (bt.triggers || []).map(t => ({ bucket: bt.bucket, ...t })))
+    flat.sort((a, b) => {
+      let cmp = 0
+      switch (lSortField) {
+        case 'bucket': cmp = a.bucket.localeCompare(b.bucket); break
+        case 'functionURL': cmp = (a.functionURL || '').localeCompare(b.functionURL || ''); break
+        case 'events': cmp = (a.events?.length || 0) - (b.events?.length || 0); break
+        case 'keyFilter': cmp = (a.keyFilter || '').localeCompare(b.keyFilter || ''); break
+      }
+      return lSortDir === 'asc' ? cmp : -cmp
+    })
+    return flat
+  }, [triggers, lSortField, lSortDir])
+
+  const LSortHeader = ({ field, label }: { field: LSortField; label: string }) => (
+    <th
+      onClick={() => handleLSort(field)}
+      className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {lSortField === field && (
+          <span className="text-indigo-600 dark:text-indigo-400">{lSortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+        )}
+      </span>
+    </th>
+  )
 
   if (loading) {
     return (
@@ -74,17 +121,17 @@ export default function LambdaPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 dark:border-gray-700">
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Bucket</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Function URL</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Events</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Key Filter</th>
+              <LSortHeader field="bucket" label="Bucket" />
+              <LSortHeader field="functionURL" label="Function URL" />
+              <LSortHeader field="events" label="Events" />
+              <LSortHeader field="keyFilter" label="Key Filter" />
               <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-            {triggers.flatMap(bt => (bt.triggers || []).map((t, i) => (
-              <tr key={`${bt.bucket}-${i}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{bt.bucket}</td>
+            {flatTriggers.map((t, i) => (
+              <tr key={`${t.bucket}-${i}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{t.bucket}</td>
                 <td className="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs max-w-xs truncate">{t.functionURL}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1">
@@ -97,7 +144,7 @@ export default function LambdaPage() {
                 </td>
                 <td className="px-4 py-3 text-gray-500 dark:text-gray-400 font-mono text-xs">{t.keyFilter || '*'}</td>
                 <td className="px-4 py-3 text-right">
-                  <button onClick={() => setDeleteTarget(bt.bucket)}
+                  <button onClick={() => setDeleteTarget(t.bucket)}
                     className="text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete triggers">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -105,8 +152,8 @@ export default function LambdaPage() {
                   </button>
                 </td>
               </tr>
-            )))}
-            {triggers.length === 0 && (
+            ))}
+            {flatTriggers.length === 0 && (
               <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">No lambda triggers configured</td></tr>
             )}
           </tbody>
