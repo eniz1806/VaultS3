@@ -222,30 +222,51 @@ export default function FileBrowserPage() {
     <div className="flex gap-4">
       {/* Main content */}
       <div className={`flex-1 min-w-0 ${selectedFile ? 'max-w-[calc(100%-320px)]' : ''}`}>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 mb-1">
-              <Link to={`/buckets/${bucket}`} className="hover:text-indigo-600 dark:hover:text-indigo-400">
-                {bucket}
-              </Link>
-              <span>/</span>
-              <button onClick={() => navigatePrefix('')} className="hover:text-indigo-600 dark:hover:text-indigo-400">
-                files
-              </button>
-              {breadcrumbs.map((bc) => (
-                <span key={bc.prefix} className="flex items-center gap-1">
-                  <span>/</span>
-                  <button
-                    onClick={() => navigatePrefix(bc.prefix)}
-                    className="hover:text-indigo-600 dark:hover:text-indigo-400"
-                  >
-                    {bc.label}
-                  </button>
-                </span>
-              ))}
-            </div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Files</h2>
-          </div>
+        <div className="mb-4">
+          <nav className="flex items-center gap-1 text-sm mb-2 flex-wrap">
+            <Link
+              to={`/buckets`}
+              className="text-gray-400 dark:text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+              </svg>
+            </Link>
+            <ChevronRight />
+            <Link
+              to={`/buckets/${bucket}`}
+              className="text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium transition-colors"
+            >
+              {bucket}
+            </Link>
+            <ChevronRight />
+            <button
+              onClick={() => navigatePrefix('')}
+              className={`font-medium transition-colors ${
+                breadcrumbs.length === 0
+                  ? 'text-gray-900 dark:text-white'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400'
+              }`}
+            >
+              files
+            </button>
+            {breadcrumbs.map((bc, i) => (
+              <span key={bc.prefix} className="flex items-center gap-1">
+                <ChevronRight />
+                <button
+                  onClick={() => navigatePrefix(bc.prefix)}
+                  className={`font-medium transition-colors ${
+                    i === breadcrumbs.length - 1
+                      ? 'text-gray-900 dark:text-white'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400'
+                  }`}
+                >
+                  {bc.label}
+                </button>
+              </span>
+            ))}
+          </nav>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Files</h2>
         </div>
 
         <div className="mb-4">
@@ -615,6 +636,14 @@ function TrashIcon() {
   return (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  )
+}
+
+function ChevronRight() {
+  return (
+    <svg className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
     </svg>
   )
 }

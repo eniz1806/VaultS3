@@ -208,6 +208,10 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/replication/queue" && r.Method == http.MethodGet:
 		h.handleReplicationQueue(w, r)
 
+	// Settings route
+	case path == "/settings" && r.Method == http.MethodGet:
+		h.handleSettings(w, r)
+
 	// Stats route
 	case path == "/stats" && r.Method == http.MethodGet:
 		h.handleStats(w, r)
