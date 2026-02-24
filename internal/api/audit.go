@@ -8,6 +8,7 @@ import (
 
 type auditResponse struct {
 	Time       string `json:"time"`
+	User       string `json:"user"`
 	Principal  string `json:"principal"`
 	UserID     string `json:"userId"`
 	Action     string `json:"action"`
@@ -53,8 +54,13 @@ func (h *APIHandler) handleListAudit(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]auditResponse, 0, len(entries))
 	for _, e := range entries {
+		user := e.UserID
+		if user == "" {
+			user = e.Principal
+		}
 		items = append(items, auditResponse{
 			Time:       time.Unix(0, e.Time).UTC().Format(time.RFC3339Nano),
+			User:       user,
 			Principal:  e.Principal,
 			UserID:     e.UserID,
 			Action:     e.Action,

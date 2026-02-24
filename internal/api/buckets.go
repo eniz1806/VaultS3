@@ -89,6 +89,12 @@ func (h *APIHandler) handleCreateBucket(w http.ResponseWriter, r *http.Request) 
 	}
 
 	b, _ := h.store.GetBucket(req.Name)
+	if b == nil {
+		writeJSON(w, http.StatusCreated, bucketListItem{
+			Name: req.Name,
+		})
+		return
+	}
 	writeJSON(w, http.StatusCreated, bucketListItem{
 		Name:      b.Name,
 		CreatedAt: b.CreatedAt,

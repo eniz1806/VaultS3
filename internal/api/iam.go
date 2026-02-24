@@ -26,11 +26,19 @@ func (h *APIHandler) handleListIAMUsers(w http.ResponseWriter, _ *http.Request) 
 
 	items := make([]iamUserResponse, 0, len(users))
 	for _, u := range users {
+		policyARNs := u.PolicyARNs
+		if policyARNs == nil {
+			policyARNs = []string{}
+		}
+		groups := u.Groups
+		if groups == nil {
+			groups = []string{}
+		}
 		items = append(items, iamUserResponse{
 			Name:       u.Name,
 			CreatedAt:  u.CreatedAt.Format(time.RFC3339),
-			PolicyARNs: u.PolicyARNs,
-			Groups:     u.Groups,
+			PolicyARNs: policyARNs,
+			Groups:     groups,
 		})
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -55,8 +63,10 @@ func (h *APIHandler) handleCreateIAMUser(w http.ResponseWriter, r *http.Request)
 	}
 
 	writeJSON(w, http.StatusCreated, iamUserResponse{
-		Name:      user.Name,
-		CreatedAt: user.CreatedAt.Format(time.RFC3339),
+		Name:       user.Name,
+		CreatedAt:  user.CreatedAt.Format(time.RFC3339),
+		PolicyARNs: []string{},
+		Groups:     []string{},
 	})
 }
 
@@ -67,11 +77,19 @@ func (h *APIHandler) handleGetIAMUser(w http.ResponseWriter, _ *http.Request, na
 		return
 	}
 
+	policyARNs := user.PolicyARNs
+	if policyARNs == nil {
+		policyARNs = []string{}
+	}
+	userGroups := user.Groups
+	if userGroups == nil {
+		userGroups = []string{}
+	}
 	writeJSON(w, http.StatusOK, iamUserResponse{
 		Name:       user.Name,
 		CreatedAt:  user.CreatedAt.Format(time.RFC3339),
-		PolicyARNs: user.PolicyARNs,
-		Groups:     user.Groups,
+		PolicyARNs: policyARNs,
+		Groups:     userGroups,
 	})
 }
 
@@ -216,10 +234,14 @@ func (h *APIHandler) handleListIAMGroups(w http.ResponseWriter, _ *http.Request)
 
 	items := make([]iamGroupResponse, 0, len(groups))
 	for _, g := range groups {
+		policyARNs := g.PolicyARNs
+		if policyARNs == nil {
+			policyARNs = []string{}
+		}
 		items = append(items, iamGroupResponse{
 			Name:       g.Name,
 			CreatedAt:  g.CreatedAt.Format(time.RFC3339),
-			PolicyARNs: g.PolicyARNs,
+			PolicyARNs: policyARNs,
 		})
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -244,8 +266,9 @@ func (h *APIHandler) handleCreateIAMGroup(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusCreated, iamGroupResponse{
-		Name:      group.Name,
-		CreatedAt: group.CreatedAt.Format(time.RFC3339),
+		Name:       group.Name,
+		CreatedAt:  group.CreatedAt.Format(time.RFC3339),
+		PolicyARNs: []string{},
 	})
 }
 

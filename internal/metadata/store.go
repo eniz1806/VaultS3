@@ -1387,7 +1387,7 @@ func (s *Store) GetCORSConfig(bucket string) (*CORSConfig, error) {
 		b := tx.Bucket(corsBucket)
 		data := b.Get([]byte(bucket))
 		if data == nil {
-			return fmt.Errorf("no CORS config for bucket: %s", bucket)
+			return nil
 		}
 		cfg = &CORSConfig{}
 		return json.Unmarshal(data, cfg)

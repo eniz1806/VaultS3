@@ -13,6 +13,41 @@ func (h *APIHandler) SetLambdaManager(mgr *lambda.TriggerManager) {
 	h.lambdaMgr = mgr
 }
 
+type lambdaTriggerResponse struct {
+	ID          string   `json:"id"`
+	FunctionURL string   `json:"functionURL"`
+	Events      []string `json:"events"`
+	KeyFilter   string   `json:"keyFilter"`
+}
+
+type bucketTriggersResponse struct {
+	Bucket   string                  `json:"bucket"`
+	Triggers []lambdaTriggerResponse `json:"triggers"`
+}
+
+func convertTriggers(triggers []metadata.LambdaTrigger) []lambdaTriggerResponse {
+	result := make([]lambdaTriggerResponse, 0, len(triggers))
+	for _, t := range triggers {
+		keyFilter := ""
+		if t.Filters.Prefix != "" {
+			keyFilter = t.Filters.Prefix + "*"
+		}
+		if t.Filters.Suffix != "" {
+			if keyFilter != "" {
+				keyFilter += ", "
+			}
+			keyFilter += "*" + t.Filters.Suffix
+		}
+		result = append(result, lambdaTriggerResponse{
+			ID:          t.ID,
+			FunctionURL: t.FunctionURL,
+			Events:      t.Events,
+			KeyFilter:   keyFilter,
+		})
+	}
+	return result
+}
+
 // handleListLambdaTriggers returns all lambda trigger configurations across buckets.
 func (h *APIHandler) handleListLambdaTriggers(w http.ResponseWriter, r *http.Request) {
 	configs, err := h.store.ListLambdaConfigs()
@@ -20,14 +55,12 @@ func (h *APIHandler) handleListLambdaTriggers(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Convert map to array for frontend
-	type bucketTriggers struct {
-		Bucket   string                   `json:"bucket"`
-		Triggers []metadata.LambdaTrigger `json:"triggers"`
-	}
-	result := make([]bucketTriggers, 0, len(configs))
+	result := make([]bucketTriggersResponse, 0, len(configs))
 	for bucket, cfg := range configs {
-		result = append(result, bucketTriggers{Bucket: bucket, Triggers: cfg.Triggers})
+		result = append(result, bucketTriggersResponse{
+			Bucket:   bucket,
+			Triggers: convertTriggers(cfg.Triggers),
+		})
 	}
 	writeJSON(w, http.StatusOK, result)
 }
@@ -36,10 +69,16 @@ func (h *APIHandler) handleListLambdaTriggers(w http.ResponseWriter, r *http.Req
 func (h *APIHandler) handleGetLambdaTriggers(w http.ResponseWriter, r *http.Request, bucket string) {
 	cfg, err := h.store.GetLambdaConfig(bucket)
 	if err != nil {
-		writeJSON(w, http.StatusOK, metadata.BucketLambdaConfig{Triggers: []metadata.LambdaTrigger{}})
+		writeJSON(w, http.StatusOK, bucketTriggersResponse{
+			Bucket:   bucket,
+			Triggers: []lambdaTriggerResponse{},
+		})
 		return
 	}
-	writeJSON(w, http.StatusOK, cfg)
+	writeJSON(w, http.StatusOK, bucketTriggersResponse{
+		Bucket:   bucket,
+		Triggers: convertTriggers(cfg.Triggers),
+	})
 }
 
 // handlePutLambdaTriggers sets lambda triggers for a specific bucket.
@@ -71,7 +110,10 @@ func (h *APIHandler) handleDeleteLambdaTriggers(w http.ResponseWriter, r *http.R
 // handleLambdaStatus returns status of the lambda trigger manager.
 func (h *APIHandler) handleLambdaStatus(w http.ResponseWriter, r *http.Request) {
 	status := map[string]interface{}{
-		"enabled": h.lambdaMgr != nil,
+		"enabled":       h.lambdaMgr != nil,
+		"totalTriggers": 0,
+		"buckets":       0,
+		"queueDepth":    0,
 	}
 	if h.lambdaMgr != nil {
 		status["queueDepth"] = h.lambdaMgr.QueueDepth()

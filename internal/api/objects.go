@@ -88,6 +88,9 @@ func (h *APIHandler) handleListObjects(w http.ResponseWriter, r *http.Request, b
 		}
 	}
 
+	if items == nil {
+		items = []objectListItem{}
+	}
 	writeJSON(w, http.StatusOK, objectListResponse{
 		Objects:   items,
 		Truncated: truncated,
@@ -205,6 +208,9 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 		}
 	}
 
+	if results == nil {
+		results = []uploadResult{}
+	}
 	writeJSON(w, http.StatusOK, results)
 }
 

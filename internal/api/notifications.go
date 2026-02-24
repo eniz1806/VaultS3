@@ -2,6 +2,12 @@ package api
 
 import "net/http"
 
+type notificationResponse struct {
+	Bucket     string   `json:"bucket"`
+	WebhookURL string   `json:"webhookURL"`
+	Events     []string `json:"events"`
+}
+
 func (h *APIHandler) handleListNotifications(w http.ResponseWriter, r *http.Request) {
 	configs, err := h.store.ListNotificationConfigs()
 	if err != nil {
@@ -9,18 +15,16 @@ func (h *APIHandler) handleListNotifications(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	type entry struct {
-		Bucket  string      `json:"bucket"`
-		Configs interface{} `json:"configs"`
-	}
-
-	var result []entry
+	// Flatten: one entry per webhook endpoint
+	result := make([]notificationResponse, 0)
 	for bucket, cfg := range configs {
-		result = append(result, entry{Bucket: bucket, Configs: cfg.Webhooks})
-	}
-
-	if result == nil {
-		result = []entry{}
+		for _, wh := range cfg.Webhooks {
+			result = append(result, notificationResponse{
+				Bucket:     bucket,
+				WebhookURL: wh.Endpoint,
+				Events:     wh.Events,
+			})
+		}
 	}
 
 	writeJSON(w, http.StatusOK, result)

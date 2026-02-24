@@ -45,31 +45,38 @@ export default function BucketDetailPage() {
     if (!name) return
     setLoading(true)
 
-    Promise.all([
-      getBucket(name),
-      getBucketVersioning(name),
-      getLifecycleRule(name),
-      getCORSConfig(name),
-    ])
-      .then(([b, v, lc, cors]) => {
+    // Load bucket first (required), then load optional configs independently
+    getBucket(name)
+      .then((b) => {
         setBucket(b)
         setMaxSizeBytes(b.maxSizeBytes ? String(b.maxSizeBytes) : '')
         setMaxObjects(b.maxObjects ? String(b.maxObjects) : '')
         setPolicyText(b.policy ? JSON.stringify(b.policy, null, 2) : '')
 
-        setVersioning(v.versioning || '')
+        // Load optional configs — failures are non-fatal
+        getBucketVersioning(name)
+          .then((v) => setVersioning(v.versioning || ''))
+          .catch(() => {})
 
-        if (lc.rule) {
-          setLifecycleRuleState(lc.rule)
-          setLcExpDays(String(lc.rule.expirationDays))
-          setLcPrefix(lc.rule.prefix || '')
-          setLcStatus(lc.rule.status || 'Enabled')
-        }
+        getLifecycleRule(name)
+          .then((lc) => {
+            if (lc.rule) {
+              setLifecycleRuleState(lc.rule)
+              setLcExpDays(String(lc.rule.expirationDays))
+              setLcPrefix(lc.rule.prefix || '')
+              setLcStatus(lc.rule.status || 'Enabled')
+            }
+          })
+          .catch(() => {})
 
-        setCorsRules(cors.rules || [])
-        if (cors.rules && cors.rules.length > 0) {
-          setCorsText(JSON.stringify(cors.rules, null, 2))
-        }
+        getCORSConfig(name)
+          .then((cors) => {
+            setCorsRules(cors.rules || [])
+            if (cors.rules && cors.rules.length > 0) {
+              setCorsText(JSON.stringify(cors.rules, null, 2))
+            }
+          })
+          .catch(() => {})
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load bucket'))
       .finally(() => setLoading(false))
