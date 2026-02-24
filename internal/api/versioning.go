@@ -16,6 +16,10 @@ func (h *APIHandler) handleListVersions(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "bucket and key are required")
 		return
 	}
+	if err := validateObjectKey(key); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// List all versions for this bucket with key prefix
 	versions, _, err := h.store.ListObjectVersions(bucket, key, "", "", 1000)
@@ -58,6 +62,10 @@ func (h *APIHandler) handleVersionDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bucket, key, v1, and v2 are required")
 		return
 	}
+	if err := validateObjectKey(key); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	result, err := versioning.Diff(h.store, h.engine, bucket, key, v1, v2)
 	if err != nil {
@@ -74,6 +82,10 @@ func (h *APIHandler) handleVersionTags(w http.ResponseWriter, r *http.Request) {
 
 	if bucket == "" || key == "" {
 		writeError(w, http.StatusBadRequest, "bucket and key are required")
+		return
+	}
+	if err := validateObjectKey(key); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -104,6 +116,10 @@ func (h *APIHandler) handleCreateTag(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bucket, key, versionId, and tag are required")
 		return
 	}
+	if err := validateObjectKey(req.Key); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	ts := versioning.NewTagStore(h.store)
 	tag := versioning.VersionTag{
@@ -129,6 +145,10 @@ func (h *APIHandler) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bucket, key, and tag are required")
 		return
 	}
+	if err := validateObjectKey(key); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	ts := versioning.NewTagStore(h.store)
 	if err := ts.DeleteTag(bucket, key, tagName); err != nil {
@@ -151,6 +171,10 @@ func (h *APIHandler) handleRollback(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Bucket == "" || req.Key == "" || req.VersionID == "" {
 		writeError(w, http.StatusBadRequest, "bucket, key, and versionId are required")
+		return
+	}
+	if err := validateObjectKey(req.Key); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

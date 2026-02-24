@@ -38,7 +38,7 @@ func readyHandler(store *metadata.Store) http.HandlerFunc {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			json.NewEncoder(w).Encode(readyResponse{
 				Status: "not ready",
-				Error:  err.Error(),
+				Error:  "metadata store unavailable",
 			})
 			return
 		}

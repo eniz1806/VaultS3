@@ -565,6 +565,13 @@ func (h *ObjectHandler) CopyObject(w http.ResponseWriter, r *http.Request, bucke
 		writeS3Error(w, "InvalidArgument", "Invalid x-amz-copy-source", http.StatusBadRequest)
 		return
 	}
+	// Validate source key against path traversal
+	for _, segment := range strings.Split(srcKey, "/") {
+		if segment == ".." {
+			writeS3Error(w, "InvalidArgument", "Invalid x-amz-copy-source key", http.StatusBadRequest)
+			return
+		}
+	}
 
 	if !h.store.BucketExists(srcBucket) {
 		writeS3Error(w, "NoSuchBucket", "Source bucket does not exist", http.StatusNotFound)

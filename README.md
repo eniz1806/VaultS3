@@ -1025,7 +1025,8 @@ VaultS3 is designed with security in mind:
 
 - **S3 Signature V4** — full signature verification including presigned URLs
 - **Presigned URL validation** — signature, expiry, and restrictions enforced server-side
-- **Path traversal protection** — `..` segments rejected at S3, API, and filesystem layers
+- **Constant-time credential comparison** — `crypto/hmac.Equal` prevents timing attacks on login
+- **Path traversal protection** — `..` segments rejected at S3, API, versioning API, CopyObject/UploadPartCopy source, and filesystem layers
 - **SSRF prevention** — webhook, lambda, and notification URLs blocked from targeting localhost, private IPs, and cloud metadata endpoints
 - **Upload size limits** — 5GB per PUT (S3 spec), enforced with `http.MaxBytesReader`
 - **Rate limiting** — per-IP token bucket using `RemoteAddr` (not spoofable via `X-Forwarded-For`)
@@ -1034,6 +1035,7 @@ VaultS3 is designed with security in mind:
 - **Security headers** — CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
 - **Non-root Docker** — container runs as `vaults3` user (UID 1000)
 - **Default credential warning** — startup log warns if admin credentials haven't been changed
+- **Error message sanitization** — OIDC and health check errors return generic messages, preventing internal detail leaking
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting policy and deployment best practices.
 

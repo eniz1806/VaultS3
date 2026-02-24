@@ -56,12 +56,13 @@ VaultS3 includes multiple security layers:
 - **S3 Signature V4** authentication with full signature verification (including presigned URLs)
 - **AES-256-GCM** encryption at rest
 - **JWT-based** dashboard authentication (24h tokens, admin key masked in responses)
+- **Constant-time credential comparison** (`crypto/hmac.Equal` prevents timing attacks on login)
 - **IAM policies** with default-deny evaluation
 - **Security headers** (CSP, X-Frame-Options, HSTS, X-Content-Type-Options, Referrer-Policy)
 - **CORS origin validation** (same-origin + localhost only)
 - **API rate limiting** (token bucket per RemoteAddr IP, not spoofable via X-Forwarded-For)
-- **Input validation** (DNS-compatible bucket names, object key length/null byte/path traversal checks)
-- **Path traversal prevention** (rejects `..` segments in object keys at S3 handler, API, and filesystem layers)
+- **Input validation** (DNS-compatible bucket names, object key length/null byte/path traversal checks — enforced on all S3, API, and versioning endpoints)
+- **Path traversal prevention** (rejects `..` segments in object keys at S3 handler, API, versioning API, CopyObject/UploadPartCopy source, and filesystem layers)
 - **SSRF protection** (webhook, notification, and lambda function URLs validated against localhost, private IPs, link-local, and cloud metadata endpoints)
 - **Upload size limits** (5GB per PUT object, 5GB per multipart part — enforced via `http.MaxBytesReader`)
 - **IP allowlist/blocklist** (global and per-user CIDR)
@@ -71,6 +72,7 @@ VaultS3 includes multiple security layers:
 - **Content-Disposition sanitization** (filenames escaped to prevent header injection)
 - **Non-root Docker container** (runs as `vaults3` user, UID 1000)
 - **Default credential warning** (startup log warning when using default admin credentials)
+- **Error message sanitization** (OIDC and health check errors return generic messages, no internal detail leaking)
 
 ## Deployment Best Practices
 

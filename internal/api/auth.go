@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/hmac"
 	"fmt"
 	"net/http"
 	"strings"
@@ -30,7 +31,10 @@ func (h *APIHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.AccessKey != h.cfg.Auth.AdminAccessKey || req.SecretKey != h.cfg.Auth.AdminSecretKey {
+	// Use constant-time comparison to prevent timing attacks
+	akMatch := hmac.Equal([]byte(req.AccessKey), []byte(h.cfg.Auth.AdminAccessKey))
+	skMatch := hmac.Equal([]byte(req.SecretKey), []byte(h.cfg.Auth.AdminSecretKey))
+	if !akMatch || !skMatch {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -81,7 +85,7 @@ func (h *APIHandler) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 
 	claims, err := h.oidc.ValidateToken(req.IDToken)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, fmt.Sprintf("invalid token: %v", err))
+		writeError(w, http.StatusUnauthorized, "invalid token")
 		return
 	}
 
