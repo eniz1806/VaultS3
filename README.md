@@ -1,8 +1,56 @@
-# VaultS3
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/eniz1806/VaultS3/main/assets/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/eniz1806/VaultS3/main/assets/logo-with-text.svg">
+    <img alt="VaultS3" src="https://raw.githubusercontent.com/eniz1806/VaultS3/main/assets/logo-with-text.svg" width="480">
+  </picture>
+</p>
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+<p align="center">
+  <strong>Lightweight S3-compatible object storage. Single binary, &lt;80MB RAM, built-in dashboard.</strong>
+</p>
 
-Lightweight, S3-compatible object storage server with built-in web dashboard. Single binary, low memory, zero external dependencies.
+<p align="center">
+  <a href="https://github.com/eniz1806/VaultS3/actions"><img src="https://github.com/eniz1806/VaultS3/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/eniz1806/VaultS3/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL_v3-4F46E5" alt="License"></a>
+  <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
+  <a href="https://github.com/eniz1806/VaultS3"><img src="https://img.shields.io/badge/S3_Operations-50+-10B981" alt="S3 Ops"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#features">Features</a> &middot;
+  <a href="#supported-s3-operations">S3 API</a> &middot;
+  <a href="#web-dashboard">Dashboard</a> &middot;
+  <a href="#cli-tool">CLI</a> &middot;
+  <a href="#docker">Docker</a>
+</p>
+
+---
+
+## Why VaultS3?
+
+**MinIO** needs 512MB+ RAM and AGPLv3 enterprise features are locked behind commercial licensing. **SeaweedFS** requires multiple components with no web UI. **Garage** lacks versioning, WORM, and notifications entirely.
+
+**VaultS3 gives you everything in one binary under 80MB RAM:**
+
+| | VaultS3 | MinIO | SeaweedFS | Garage |
+|---|:---:|:---:|:---:|:---:|
+| RAM (small deploy) | **<80 MB** | 512 MB+ | 50-200 MB | 50-150 MB |
+| Single binary | **Yes** | Yes | No | Yes |
+| Web dashboard | **Built-in** | Built-in | No | No |
+| FUSE mount | **Built-in** | No | Buggy | No |
+| Full-text search | **Yes** | No | No | No |
+| Version diff/tags | **Yes** | No | No | No |
+| Lambda triggers | **Yes** | No | No | No |
+| Virus scanning | **Yes** | No | No | No |
+| Backup scheduler | **Yes** | No | No | No |
+
+```bash
+make build && ./vaults3
+# Server at http://localhost:9000
+# Dashboard at http://localhost:9000/dashboard/
+```
 
 ## Features
 

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 120" fill="none">
+  <!-- Shield/Vault icon -->
+  <g transform="translate(20, 10)">
+    <!-- Shield shape -->
+    <path d="M50 5 L90 20 L90 55 C90 78 72 95 50 100 C28 95 10 78 10 55 L10 20 Z"
+          fill="#6366F1" stroke="#818CF8" stroke-width="2"/>
+    <!-- Lock body -->
+    <rect x="33" y="45" width="34" height="28" rx="4" fill="#1E1B4B" stroke="#818CF8" stroke-width="1.5"/>
+    <!-- Lock shackle -->
+    <path d="M38 45 L38 35 C38 27 43 22 50 22 C57 22 62 27 62 35 L62 45"
+          fill="none" stroke="#1E1B4B" stroke-width="4" stroke-linecap="round"/>
+    <!-- Keyhole -->
+    <circle cx="50" cy="56" r="4" fill="#A5B4FC"/>
+    <rect x="48.5" y="57" width="3" height="8" rx="1.5" fill="#A5B4FC"/>
+    <!-- S3 badge -->
+    <circle cx="78" cy="80" r="14" fill="#10B981" stroke="#34D399" stroke-width="1.5"/>
+    <text x="78" y="85" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="white">S3</text>
+  </g>
+  <!-- Text -->
+  <text x="130" y="55" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="800" fill="#F1F5F9" letter-spacing="-1">
+    Vault<tspan fill="#818CF8">S3</tspan>
+  </text>
+  <!-- Tagline -->
+  <text x="132" y="82" font-family="system-ui, -apple-system, sans-serif" font-size="16" fill="#94A3B8" font-weight="400">
+    Lightweight S3-compatible object storage
+  </text>
+  <!-- Feature pills -->
+  <g transform="translate(132, 92)">
+    <rect x="0" y="0" width="80" height="20" rx="10" fill="#1E1B4B"/>
+    <text x="40" y="14" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#A5B4FC" font-weight="600">Single Binary</text>
+    <rect x="88" y="0" width="68" height="20" rx="10" fill="#064E3B"/>
+    <text x="122" y="14" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#34D399" font-weight="600">&lt;80MB RAM</text>
+    <rect x="164" y="0" width="72" height="20" rx="10" fill="#451A03"/>
+    <text x="200" y="14" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#FBBF24" font-weight="600">Dashboard</text>
+  </g>
+</svg>
