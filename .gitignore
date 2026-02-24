@@ -1,5 +1,7 @@
 # Binary
-vaults3
+/vaults3
+/vaults3-cli
+bin/
 *.exe
 
 # Data directories
