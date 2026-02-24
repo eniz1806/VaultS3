@@ -1046,7 +1046,7 @@ VaultS3/
 - [x] Request ID middleware (X-Request-Id header on every response)
 - [x] Panic recovery middleware (stack trace logging, graceful 500 responses)
 - [x] Request latency histogram (Prometheus-compatible `vaults3_request_duration_seconds_bucket`)
-- [x] Go unit tests for 10 packages (metadata, storage, IAM, ratelimit, search, config, middleware, server, lifecycle, S3 handler) — 82 tests
+- [x] Go unit tests for 14 packages (metadata, storage, IAM, ratelimit, search, config, middleware, server, lifecycle, S3 handler, API, versioning, notify) — 133 tests
 - [x] Makefile targets: `make test-coverage`, `make lint`
 - [x] Dashboard polish: sortable table columns on all list pages (files, buckets, keys, audit, search)
 - [x] Dashboard polish: client-side pagination (50 items/page) on file browser and audit trail
@@ -1075,3 +1075,7 @@ VaultS3/
 - [x] Toast notification system (success/error/info toasts, bottom-right stack, auto-dismiss 5s)
 - [x] Sortable table columns on all dashboard pages (notifications, backups, lambda triggers, replication queue)
 - [x] Enhanced bucket creation wizard (optional versioning toggle + auto-expire lifecycle rule)
+- [x] API tests (auth login/failure, JWT required, bucket CRUD, CORS preflight, input validation)
+- [x] Versioning tests (LCS diff algorithm, text type detection, metadata diff, tag store CRUD)
+- [x] Notify tests (dispatcher lifecycle, backend publish, webhook delivery, event/key filtering, retry)
+- [x] Python integration test (security headers, CORS, auth, validation, bucket CRUD, versioning, settings)
