@@ -20,7 +20,16 @@ func (h *APIHandler) handleListLambdaTriggers(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, configs)
+	// Convert map to array for frontend
+	type bucketTriggers struct {
+		Bucket   string                    `json:"bucket"`
+		Triggers []metadata.LambdaTrigger  `json:"triggers"`
+	}
+	result := make([]bucketTriggers, 0, len(configs))
+	for bucket, cfg := range configs {
+		result = append(result, bucketTriggers{Bucket: bucket, Triggers: cfg.Triggers})
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleGetLambdaTriggers returns lambda triggers for a specific bucket.
