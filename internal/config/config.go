@@ -26,6 +26,7 @@ type Config struct {
 	OIDC          OIDCConfig          `yaml:"oidc"`
 	Lambda        LambdaConfig        `yaml:"lambda"`
 	Memory        MemoryConfig        `yaml:"memory"`
+	Debug         bool                `yaml:"debug"`
 }
 
 type MemoryConfig struct {

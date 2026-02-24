@@ -8,6 +8,11 @@ export interface BucketStat {
   maxObjects?: number
 }
 
+export interface RequestMethodStat {
+  method: string
+  count: number
+}
+
 export interface Stats {
   totalBuckets: number
   totalObjects: number
@@ -16,6 +21,11 @@ export interface Stats {
   goroutines: number
   memoryMB: number
   buckets: BucketStat[]
+  requestsByMethod: RequestMethodStat[]
+  totalRequests: number
+  totalErrors: number
+  bytesIn: number
+  bytesOut: number
 }
 
 export function getStats(): Promise<Stats> {

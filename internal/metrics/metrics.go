@@ -110,6 +110,42 @@ func (c *Collector) StartTime() time.Time {
 	return c.startTime
 }
 
+// RequestsByMethod returns request counts per HTTP method.
+func (c *Collector) RequestsByMethod() map[string]int64 {
+	m := make(map[string]int64, methodCount)
+	for i := 0; i < methodCount; i++ {
+		v := c.requestsTotal[i].Load()
+		if v > 0 {
+			m[methodLabel(i)] = v
+		}
+	}
+	return m
+}
+
+// TotalRequests returns the total number of requests.
+func (c *Collector) TotalRequests() int64 {
+	var total int64
+	for i := 0; i < methodCount; i++ {
+		total += c.requestsTotal[i].Load()
+	}
+	return total
+}
+
+// TotalErrors returns the total number of errors.
+func (c *Collector) TotalErrors() int64 {
+	return c.requestErrors.Load()
+}
+
+// TotalBytesIn returns total bytes received.
+func (c *Collector) TotalBytesIn() int64 {
+	return c.bytesIn.Load()
+}
+
+// TotalBytesOut returns total bytes sent.
+func (c *Collector) TotalBytesOut() int64 {
+	return c.bytesOut.Load()
+}
+
 // RecordRequest increments the request counter for the given method.
 func (c *Collector) RecordRequest(method string) {
 	c.requestsTotal[methodIndex(method)].Add(1)

@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"net/http/pprof"
 	"runtime/debug"
 
 	"github.com/eniz1806/VaultS3/internal/accesslog"
@@ -341,6 +342,17 @@ func (s *Server) Run() error {
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle("/dashboard/", dashboard.Handler())
 	mux.Handle("/metrics", s.metrics)
+
+	// Register pprof endpoints when debug mode is enabled
+	if s.cfg.Debug {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		slog.Info("pprof debug endpoints enabled at /debug/pprof/")
+	}
+
 	mux.Handle("/", s.s3h)
 
 	// Wrap mux with middleware: panic recovery (outermost) → request ID → latency → mux

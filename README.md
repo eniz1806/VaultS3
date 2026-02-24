@@ -54,6 +54,9 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **FUSE mount** — Mount VaultS3 buckets as local filesystem directories with read/write support, lazy loading, and SigV4 authentication. LRU block cache (256KB blocks, configurable size), metadata cache with TTL, kernel attribute caching, and SigV4 derived key caching for fast repeated reads
 - **OIDC/JWT SSO** — Sign in to the dashboard with external identity providers (Google, Keycloak, Auth0) via OpenID Connect. RS256 JWT verification with JWKS auto-discovery and caching. Email domain filtering, auto-create users, OIDC group to policy mapping.
 - **Lambda compute triggers** — Webhook-based function triggers on S3 events. Call external URLs with event payload and optional object body, optionally store the response as a new object. Per-bucket trigger configuration with event type and key prefix/suffix filtering. Worker pool with non-blocking dispatch.
+- **SVG dashboard charts** — Pure SVG bar chart (per-bucket sizes), donut chart (request method distribution), and sparkline (request activity) on the stats page — zero dependencies
+- **GitHub Actions CI** — Automated build, test, lint, and coverage on push/PR
+- **pprof debug endpoint** — `/debug/pprof/*` available when `debug: true` in config for CPU/memory profiling
 - **Structured logging (slog)** — All server logs use Go's `log/slog` with key-value pairs; configurable log level (`debug`, `info`, `warn`, `error`) via `logging.level` in config
 - **Request ID middleware** — Every response includes an `X-Request-Id` header for request tracing
 - **Panic recovery middleware** — Catches panics, logs full stack trace, returns 500 without crashing the server
@@ -1034,3 +1037,7 @@ VaultS3/
 - [x] Dashboard polish: file preview panel (images, text files, JSON) with metadata sidebar
 - [x] Dashboard polish: bucket config UI (versioning toggle, lifecycle rule editor, CORS config editor)
 - [x] Dashboard API: versioning, lifecycle, and CORS endpoints for bucket settings management
+- [x] SVG dashboard charts: BarChart (per-bucket sizes), DonutChart (request method distribution), Sparkline (activity)
+- [x] GitHub Actions CI: build, test, lint, coverage on push/PR
+- [x] pprof debug endpoint: `/debug/pprof/*` behind `debug: true` config flag
+- [x] Extended stats API with request metrics (total requests, errors, bytes in/out, requests by method)

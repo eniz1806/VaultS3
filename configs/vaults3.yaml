@@ -111,3 +111,5 @@ lambda:
 memory:
   max_search_entries: 50000    # max objects in search index (LRU eviction)
   go_mem_limit_mb: 0           # Go runtime memory limit (0 = unlimited)
+
+debug: false                   # enable /debug/pprof/* endpoints
