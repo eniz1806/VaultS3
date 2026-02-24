@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/eniz1806/VaultS3/main/assets/logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/eniz1806/VaultS3/main/assets/logo-with-text.svg">
-    <img alt="VaultS3" src="https://raw.githubusercontent.com/eniz1806/VaultS3/main/assets/logo-with-text.svg" width="480">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo-with-text.svg">
+    <img alt="VaultS3" src="assets/logo-with-text.svg" width="480">
   </picture>
 </p>
 
@@ -30,7 +30,7 @@
 
 ## Why VaultS3?
 
-**MinIO** needs 512MB+ RAM and AGPLv3 enterprise features are locked behind commercial licensing. **SeaweedFS** requires multiple components with no web UI. **Garage** lacks versioning, WORM, and notifications entirely.
+**MinIO** needs 512MB+ RAM and locks features like per-bucket rate limiting behind a paid enterprise tier. **SeaweedFS** requires multiple components with no web UI. **Garage** lacks versioning, WORM, and notifications entirely.
 
 **VaultS3 gives you everything in one binary under 80MB RAM:**
 
