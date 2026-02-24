@@ -1038,7 +1038,7 @@ VaultS3/
 - [x] Request ID middleware (X-Request-Id header on every response)
 - [x] Panic recovery middleware (stack trace logging, graceful 500 responses)
 - [x] Request latency histogram (Prometheus-compatible `vaults3_request_duration_seconds_bucket`)
-- [x] Go unit tests for 5 core packages (metadata, storage, IAM, ratelimit, search)
+- [x] Go unit tests for 10 packages (metadata, storage, IAM, ratelimit, search, config, middleware, server, lifecycle, S3 handler) — 82 tests
 - [x] Makefile targets: `make test-coverage`, `make lint`
 - [x] Dashboard polish: sortable table columns on all list pages (files, buckets, keys, audit, search)
 - [x] Dashboard polish: client-side pagination (50 items/page) on file browser and audit trail
