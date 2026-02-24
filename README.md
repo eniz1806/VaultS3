@@ -27,7 +27,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Per-bucket Prometheus metrics** — Request counts, bytes in/out, and errors with bucket labels at `/metrics`
 - **Prometheus metrics** — `/metrics` endpoint with storage, request, and runtime stats
 - **Presigned URLs** — Pre-authenticated URL generation
-- **Web dashboard** — Built-in React UI at `/dashboard/` with home overview page, file browser (sortable columns, pagination, file preview, metadata panel, multi-select, bulk delete, bulk zip download, breadcrumb navigation), drag-and-drop file and folder upload, copy-to-clipboard buttons, access key management, activity log, storage stats with auto-refresh, read-only settings viewer, IAM management, audit trail viewer (sortable, paginated), search (sortable, paginated), notifications, replication status, lambda triggers, backup management, bucket config (versioning toggle, lifecycle editor, CORS editor), keyboard shortcuts (`/` search, `?` help), dark/light theme, responsive layout
+- **Web dashboard** — Built-in React UI at `/dashboard/` with home overview page, file browser (sortable columns, pagination, file preview, metadata panel, version history panel with diff viewer/rollback/tagging, multi-select, bulk delete, bulk zip download, breadcrumb navigation), drag-and-drop file and folder upload, copy-to-clipboard buttons, access key management, activity log, storage stats with auto-refresh, read-only settings viewer, IAM management, audit trail viewer (sortable, paginated), search (sortable, paginated), notifications, replication status, lambda triggers, backup management, bucket config (versioning toggle with status indicator, lifecycle editor, CORS editor), keyboard shortcuts (`/` search, `?` help), dark/light theme, responsive layout
 - **Health checks** — `/health` (liveness) and `/ready` (readiness) endpoints for load balancers and Kubernetes
 - **Graceful shutdown** — Drains in-flight requests on SIGTERM/SIGINT with configurable timeout
 - **TLS support** — Optional HTTPS with configurable cert/key paths
@@ -146,6 +146,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Bucket CORS (Dashboard) | `GET/PUT/DELETE /api/v1/buckets/{name}/cors` | Done |
 | Bulk Delete (Dashboard) | `POST /api/v1/buckets/{name}/bulk-delete` | Done |
 | Bulk Download Zip | `GET /api/v1/buckets/{name}/download-zip?keys=...` | Done |
+| Version List (Dashboard) | `GET /api/v1/versions?bucket=X&key=Y` | Done |
 | Settings | `GET /api/v1/settings` | Done |
 
 ## Quick Start
@@ -1069,3 +1070,5 @@ VaultS3/
 - [x] CORS origin validation (same-origin + localhost, replaces wildcard)
 - [x] Dashboard API rate limiting (429 Too Many Requests)
 - [x] Input validation (DNS-compatible bucket names, object key constraints)
+- [x] Object versioning dashboard UI (version list panel, diff viewer, rollback, version tagging, bucket versioning indicator)
+- [x] Version list API (`GET /api/v1/versions?bucket=X&key=Y`)

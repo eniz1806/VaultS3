@@ -8,6 +8,46 @@ import (
 	"github.com/eniz1806/VaultS3/internal/versioning"
 )
 
+func (h *APIHandler) handleListVersions(w http.ResponseWriter, r *http.Request) {
+	bucket := r.URL.Query().Get("bucket")
+	key := r.URL.Query().Get("key")
+
+	if bucket == "" || key == "" {
+		writeError(w, http.StatusBadRequest, "bucket and key are required")
+		return
+	}
+
+	// List all versions for this bucket with key prefix
+	versions, _, err := h.store.ListObjectVersions(bucket, key, "", "", 1000)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Filter to exact key match only
+	var filtered []map[string]interface{}
+	for _, v := range versions {
+		if v.Key != key {
+			continue
+		}
+		filtered = append(filtered, map[string]interface{}{
+			"versionId":    v.VersionID,
+			"size":         v.Size,
+			"lastModified": v.LastModified,
+			"etag":         v.ETag,
+			"isLatest":     v.IsLatest,
+			"deleteMarker": v.DeleteMarker,
+			"contentType":  v.ContentType,
+		})
+	}
+
+	if filtered == nil {
+		filtered = []map[string]interface{}{}
+	}
+
+	writeJSON(w, http.StatusOK, filtered)
+}
+
 func (h *APIHandler) handleVersionDiff(w http.ResponseWriter, r *http.Request) {
 	bucket := r.URL.Query().Get("bucket")
 	key := r.URL.Query().Get("key")

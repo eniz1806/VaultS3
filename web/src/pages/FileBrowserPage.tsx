@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { listObjects, deleteObject, bulkDeleteObjects, getDownloadUrl, getDownloadZipUrl, type ObjectItem } from '../api/objects'
+import { getBucketVersioning } from '../api/buckets'
+import { listVersions, getVersionTags, createVersionTag, deleteVersionTag, rollbackVersion, type Version, type VersionTag } from '../api/versions'
 import UploadDropzone from '../components/UploadDropzone'
 import CopyButton from '../components/CopyButton'
+import VersionDiffViewer from '../components/VersionDiffViewer'
 
 type SortField = 'name' | 'size' | 'type' | 'modified'
 type SortDir = 'asc' | 'desc'
@@ -35,6 +38,81 @@ export default function FileBrowserPage() {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
+
+  // Versioning
+  const [versioningEnabled, setVersioningEnabled] = useState(false)
+  const [sideTab, setSideTab] = useState<'info' | 'versions'>('info')
+  const [versions, setVersions] = useState<Version[]>([])
+  const [versionsLoading, setVersionsLoading] = useState(false)
+  const [versionTags, setVersionTags] = useState<VersionTag[]>([])
+  const [newTagVersion, setNewTagVersion] = useState<string | null>(null)
+  const [newTagName, setNewTagName] = useState('')
+  const [rollbackTarget, setRollbackTarget] = useState<string | null>(null)
+  const [diffVersions, setDiffVersions] = useState<[string, string] | null>(null)
+
+  // Check if versioning is enabled on this bucket
+  useEffect(() => {
+    if (!bucket) return
+    getBucketVersioning(bucket)
+      .then(v => setVersioningEnabled(v.versioning === 'Enabled'))
+      .catch(() => setVersioningEnabled(false))
+  }, [bucket])
+
+  // Load versions when a file is selected and versions tab is active
+  useEffect(() => {
+    if (!bucket || !selectedFile || selectedFile.isPrefix || sideTab !== 'versions') return
+    setVersionsLoading(true)
+    Promise.all([
+      listVersions(bucket, selectedFile.key),
+      getVersionTags(bucket, selectedFile.key),
+    ])
+      .then(([v, t]) => { setVersions(v); setVersionTags(t) })
+      .catch(() => { setVersions([]); setVersionTags([]) })
+      .finally(() => setVersionsLoading(false))
+  }, [bucket, selectedFile, sideTab])
+
+  const handleRollback = async (versionId: string) => {
+    if (!bucket || !selectedFile) return
+    setError('')
+    try {
+      await rollbackVersion(bucket, selectedFile.key, versionId)
+      setRollbackTarget(null)
+      fetchObjects()
+      // Refresh versions
+      const [v, t] = await Promise.all([
+        listVersions(bucket, selectedFile.key),
+        getVersionTags(bucket, selectedFile.key),
+      ])
+      setVersions(v)
+      setVersionTags(t)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rollback failed')
+    }
+  }
+
+  const handleAddTag = async (versionId: string) => {
+    if (!bucket || !selectedFile || !newTagName.trim()) return
+    try {
+      await createVersionTag(bucket, selectedFile.key, versionId, newTagName.trim())
+      setNewTagVersion(null)
+      setNewTagName('')
+      const t = await getVersionTags(bucket, selectedFile.key)
+      setVersionTags(t)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add tag')
+    }
+  }
+
+  const handleDeleteTag = async (tagName: string) => {
+    if (!bucket || !selectedFile) return
+    try {
+      await deleteVersionTag(bucket, selectedFile.key, tagName)
+      const t = await getVersionTags(bucket, selectedFile.key)
+      setVersionTags(t)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete tag')
+    }
+  }
 
   const fetchObjects = useCallback(async () => {
     if (!bucket) return
@@ -489,6 +567,43 @@ export default function FileBrowserPage() {
         )}
       </div>
 
+      {/* Diff viewer modal */}
+      {diffVersions && selectedFile && (
+        <VersionDiffViewer
+          bucket={bucket}
+          objectKey={selectedFile.key}
+          v1={diffVersions[0]}
+          v2={diffVersions[1]}
+          onClose={() => setDiffVersions(null)}
+        />
+      )}
+
+      {/* Rollback confirmation modal */}
+      {rollbackTarget && selectedFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-sm mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Rollback Version</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Restore <strong className="break-all">{displayName(selectedFile.key, prefix)}</strong> to version <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1 rounded">{rollbackTarget.slice(0, 16)}...</code>?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setRollbackTarget(null)}
+                className="px-4 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleRollback(rollbackTarget)}
+                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors"
+              >
+                Rollback
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Side panel — file metadata & preview */}
       {selectedFile && (
         <div className="w-80 flex-shrink-0">
@@ -496,7 +611,7 @@ export default function FileBrowserPage() {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{displayName(selectedFile.key, prefix)}</h3>
               <button
-                onClick={() => { setSelectedFile(null); setPreviewContent(null) }}
+                onClick={() => { setSelectedFile(null); setPreviewContent(null); setSideTab('info') }}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -505,74 +620,213 @@ export default function FileBrowserPage() {
               </button>
             </div>
 
-            {/* Metadata */}
-            <div className="space-y-2 text-xs mb-4">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500 dark:text-gray-400">Key</span>
-                <span className="flex items-center gap-1">
-                  <span className="text-gray-900 dark:text-white font-mono truncate max-w-[150px]" title={selectedFile.key}>{selectedFile.key}</span>
-                  <CopyButton text={selectedFile.key} />
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500 dark:text-gray-400">S3 URI</span>
-                <span className="flex items-center gap-1">
-                  <span className="text-gray-900 dark:text-white font-mono truncate max-w-[150px]" title={`s3://${bucket}/${selectedFile.key}`}>s3://{bucket}/...</span>
-                  <CopyButton text={`s3://${bucket}/${selectedFile.key}`} />
-                </span>
-              </div>
-              <MetaRow label="Size" value={formatSize(selectedFile.size)} />
-              <MetaRow label="Type" value={selectedFile.contentType || '-'} />
-              <MetaRow label="Modified" value={selectedFile.lastModified ? new Date(selectedFile.lastModified).toLocaleString() : '-'} />
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-2 mb-4">
-              <a
-                href={getDownloadUrl(bucket, selectedFile.key)}
-                className="flex-1 text-center px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
-              >
-                Download
-              </a>
-              <button
-                onClick={() => setDeleteTarget(selectedFile.key)}
-                className="px-3 py-1.5 rounded-lg border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-xs font-medium transition-colors"
-              >
-                Delete
-              </button>
-            </div>
-
-            {/* Preview */}
-            {previewLoading && (
-              <div className="flex justify-center py-8">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
+            {/* Tabs */}
+            {versioningEnabled && (
+              <div className="flex gap-1 mb-3 border-b border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => setSideTab('info')}
+                  className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                    sideTab === 'info'
+                      ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  Info
+                </button>
+                <button
+                  onClick={() => setSideTab('versions')}
+                  className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                    sideTab === 'versions'
+                      ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  Versions
+                </button>
               </div>
             )}
 
-            {previewContent === '__image__' && (
-              <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                <img
-                  src={getDownloadUrl(bucket, selectedFile.key)}
-                  alt={selectedFile.key}
-                  className="w-full h-auto max-h-64 object-contain bg-gray-100 dark:bg-gray-900"
-                />
-              </div>
-            )}
-
-            {previewContent && previewContent !== '__image__' && (
-              <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
-                  Preview
+            {/* Info tab */}
+            {sideTab === 'info' && (
+              <>
+                <div className="space-y-2 text-xs mb-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 dark:text-gray-400">Key</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-gray-900 dark:text-white font-mono truncate max-w-[150px]" title={selectedFile.key}>{selectedFile.key}</span>
+                      <CopyButton text={selectedFile.key} />
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 dark:text-gray-400">S3 URI</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-gray-900 dark:text-white font-mono truncate max-w-[150px]" title={`s3://${bucket}/${selectedFile.key}`}>s3://{bucket}/...</span>
+                      <CopyButton text={`s3://${bucket}/${selectedFile.key}`} />
+                    </span>
+                  </div>
+                  <MetaRow label="Size" value={formatSize(selectedFile.size)} />
+                  <MetaRow label="Type" value={selectedFile.contentType || '-'} />
+                  <MetaRow label="Modified" value={selectedFile.lastModified ? new Date(selectedFile.lastModified).toLocaleString() : '-'} />
                 </div>
-                <pre className="p-3 text-xs text-gray-800 dark:text-gray-200 overflow-auto max-h-80 whitespace-pre-wrap font-mono bg-white dark:bg-gray-800">
-                  {previewContent.slice(0, 10000)}{previewContent.length > 10000 ? '\n\n... truncated ...' : ''}
-                </pre>
-              </div>
+
+                <div className="flex gap-2 mb-4">
+                  <a
+                    href={getDownloadUrl(bucket, selectedFile.key)}
+                    className="flex-1 text-center px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
+                  >
+                    Download
+                  </a>
+                  <button
+                    onClick={() => setDeleteTarget(selectedFile.key)}
+                    className="px-3 py-1.5 rounded-lg border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-xs font-medium transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+
+                {previewLoading && (
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
+                  </div>
+                )}
+
+                {previewContent === '__image__' && (
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <img
+                      src={getDownloadUrl(bucket, selectedFile.key)}
+                      alt={selectedFile.key}
+                      className="w-full h-auto max-h-64 object-contain bg-gray-100 dark:bg-gray-900"
+                    />
+                  </div>
+                )}
+
+                {previewContent && previewContent !== '__image__' && (
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <div className="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
+                      Preview
+                    </div>
+                    <pre className="p-3 text-xs text-gray-800 dark:text-gray-200 overflow-auto max-h-80 whitespace-pre-wrap font-mono bg-white dark:bg-gray-800">
+                      {previewContent.slice(0, 10000)}{previewContent.length > 10000 ? '\n\n... truncated ...' : ''}
+                    </pre>
+                  </div>
+                )}
+
+                {!previewLoading && previewContent === null && selectedFile && (
+                  <div className="text-center py-6 text-xs text-gray-400 dark:text-gray-500">
+                    No preview available
+                  </div>
+                )}
+              </>
             )}
 
-            {!previewLoading && previewContent === null && selectedFile && (
-              <div className="text-center py-6 text-xs text-gray-400 dark:text-gray-500">
-                No preview available
+            {/* Versions tab */}
+            {sideTab === 'versions' && (
+              <div className="text-xs">
+                {versionsLoading ? (
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
+                  </div>
+                ) : versions.length === 0 ? (
+                  <div className="text-center py-6 text-gray-400 dark:text-gray-500">
+                    No versions found
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {versions.map((v, i) => {
+                      const tagsForVersion = versionTags.filter(t => t.versionId === v.versionId)
+                      return (
+                        <div key={v.versionId} className="border border-gray-200 dark:border-gray-700 rounded-lg p-2.5">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="font-mono text-gray-700 dark:text-gray-300 truncate" title={v.versionId}>
+                              {v.versionId.slice(0, 16)}...
+                            </span>
+                            {v.isLatest && (
+                              <span className="px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[10px] font-medium">
+                                Latest
+                              </span>
+                            )}
+                            {v.deleteMarker && (
+                              <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 text-[10px] font-medium">
+                                Deleted
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-gray-500 dark:text-gray-400 mb-1.5">
+                            {formatSize(v.size)} &middot; {new Date(v.lastModified * 1000).toLocaleString()}
+                          </div>
+
+                          {/* Tags */}
+                          {tagsForVersion.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-1.5">
+                              {tagsForVersion.map(t => (
+                                <span key={t.name} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 text-[10px]">
+                                  {t.name}
+                                  <button onClick={() => handleDeleteTag(t.name)} className="hover:text-red-500 ml-0.5">&times;</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Add tag form */}
+                          {newTagVersion === v.versionId ? (
+                            <div className="flex gap-1 mb-1.5">
+                              <input
+                                type="text"
+                                value={newTagName}
+                                onChange={e => setNewTagName(e.target.value)}
+                                placeholder="Tag name..."
+                                className="flex-1 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-[11px] outline-none focus:ring-1 focus:ring-indigo-500"
+                                onKeyDown={e => e.key === 'Enter' && handleAddTag(v.versionId)}
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => handleAddTag(v.versionId)}
+                                className="px-2 py-1 rounded bg-indigo-600 text-white text-[10px] font-medium hover:bg-indigo-700"
+                              >
+                                Add
+                              </button>
+                              <button
+                                onClick={() => { setNewTagVersion(null); setNewTagName('') }}
+                                className="px-1.5 py-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          ) : null}
+
+                          {/* Version actions */}
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => { setNewTagVersion(v.versionId); setNewTagName('') }}
+                              className="px-2 py-0.5 rounded text-[10px] text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600"
+                              title="Add tag"
+                            >
+                              Tag
+                            </button>
+                            {i < versions.length - 1 && (
+                              <button
+                                onClick={() => setDiffVersions([v.versionId, versions[i + 1].versionId])}
+                                className="px-2 py-0.5 rounded text-[10px] text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600"
+                                title="Diff with next version"
+                              >
+                                Diff
+                              </button>
+                            )}
+                            {!v.isLatest && !v.deleteMarker && (
+                              <button
+                                onClick={() => setRollbackTarget(v.versionId)}
+                                className="px-2 py-0.5 rounded text-[10px] text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700"
+                                title="Rollback to this version"
+                              >
+                                Rollback
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>

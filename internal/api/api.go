@@ -185,6 +185,8 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleQuarantineList(w, r)
 
 	// Versioning routes
+	case path == "/versions" && r.Method == http.MethodGet:
+		h.handleListVersions(w, r)
 	case path == "/versions/diff" && r.Method == http.MethodGet:
 		h.handleVersionDiff(w, r)
 	case path == "/versions/tags" && r.Method == http.MethodGet:
