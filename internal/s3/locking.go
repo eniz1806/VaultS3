@@ -2,6 +2,7 @@ package s3
 
 import (
 	"encoding/xml"
+	"io"
 	"net/http"
 	"time"
 
@@ -21,7 +22,7 @@ func (h *ObjectHandler) PutObjectLegalHold(w http.ResponseWriter, r *http.Reques
 		XMLName xml.Name `xml:"LegalHold"`
 		Status  string   `xml:"Status"`
 	}
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := xml.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeS3Error(w, "MalformedXML", "Could not parse legal hold XML", http.StatusBadRequest)
 		return
 	}
@@ -95,7 +96,7 @@ func (h *ObjectHandler) PutObjectRetention(w http.ResponseWriter, r *http.Reques
 		Mode            string   `xml:"Mode"`
 		RetainUntilDate string   `xml:"RetainUntilDate"`
 	}
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := xml.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeS3Error(w, "MalformedXML", "Could not parse retention XML", http.StatusBadRequest)
 		return
 	}

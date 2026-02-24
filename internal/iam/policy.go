@@ -52,28 +52,50 @@ func matchesAny(patterns []string, value string) bool {
 }
 
 // matchWildcard matches a pattern against a value.
-// Supports "*" as a wildcard that matches everything, and trailing "*" for prefix matching.
+// Supports "*" (matches any sequence of characters) and "?" (matches any single character)
+// at any position in the pattern.
 func matchWildcard(pattern, value string) bool {
+	// Fast path for common cases
 	if pattern == "*" {
 		return true
 	}
-
-	// Handle s3:* matching any s3 action
-	if strings.HasSuffix(pattern, ":*") {
-		prefix := strings.TrimSuffix(pattern, "*")
-		return strings.HasPrefix(value, prefix)
+	if !strings.ContainsAny(pattern, "*?") {
+		return pattern == value
 	}
+	// DP-based wildcard matching
+	return wildcardMatch(pattern, value)
+}
 
-	// Handle resource wildcards like arn:aws:s3:::bucket/*
+// wildcardMatch implements full wildcard matching with * and ? at any position.
+// Special case: "prefix/*" also matches "prefix" itself (for resource ARN matching).
+func wildcardMatch(pattern, value string) bool {
+	// Special case: arn:aws:s3:::bucket/* should match arn:aws:s3:::bucket
 	if strings.HasSuffix(pattern, "/*") {
-		prefix := strings.TrimSuffix(pattern, "/*")
-		return value == prefix || strings.HasPrefix(value, prefix+"/")
+		base := strings.TrimSuffix(pattern, "/*")
+		if value == base {
+			return true
+		}
 	}
-
-	if strings.HasSuffix(pattern, "*") {
-		prefix := strings.TrimSuffix(pattern, "*")
-		return strings.HasPrefix(value, prefix)
+	p, v := 0, 0
+	starP, starV := -1, -1
+	for v < len(value) {
+		if p < len(pattern) && (pattern[p] == '?' || pattern[p] == value[v]) {
+			p++
+			v++
+		} else if p < len(pattern) && pattern[p] == '*' {
+			starP = p
+			starV = v
+			p++
+		} else if starP >= 0 {
+			starV++
+			v = starV
+			p = starP + 1
+		} else {
+			return false
+		}
 	}
-
-	return pattern == value
+	for p < len(pattern) && pattern[p] == '*' {
+		p++
+	}
+	return p == len(pattern)
 }

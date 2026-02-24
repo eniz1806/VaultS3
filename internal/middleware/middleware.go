@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
 )
+
+var requestIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9._\-]`)
 
 // requestCounter is used to generate unique request IDs.
 var requestCounter uint64
@@ -25,6 +28,15 @@ func RequestID(next http.Handler) http.Handler {
 		id := r.Header.Get("X-Request-Id")
 		if id == "" {
 			id = generateRequestID()
+		} else {
+			// Sanitize client-provided request ID to prevent header injection
+			id = requestIDSanitizer.ReplaceAllString(id, "")
+			if len(id) > 128 {
+				id = id[:128]
+			}
+			if id == "" {
+				id = generateRequestID()
+			}
 		}
 		w.Header().Set("X-Request-Id", id)
 		next.ServeHTTP(w, r)

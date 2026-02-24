@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,13 +42,15 @@ func (h *ObjectHandler) CreateMultipartUpload(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := h.store.CreateMultipartUpload(upload); err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
 	partsDir := h.multipartDir(uploadID)
 	if err := os.MkdirAll(partsDir, 0755); err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -93,7 +96,8 @@ func (h *ObjectHandler) UploadPart(w http.ResponseWriter, r *http.Request, bucke
 	partPath := filepath.Join(h.multipartDir(uploadID), fmt.Sprintf("part-%05d", partNum))
 	f, err := os.Create(partPath)
 	if err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	defer f.Close()
@@ -102,7 +106,8 @@ func (h *ObjectHandler) UploadPart(w http.ResponseWriter, r *http.Request, bucke
 	written, err := io.Copy(f, io.TeeReader(r.Body, hash))
 	if err != nil {
 		os.Remove(partPath)
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -146,7 +151,7 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 	}
 
 	var req completeRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := xml.NewDecoder(io.LimitReader(r.Body, 256*1024)).Decode(&req); err != nil {
 		writeS3Error(w, "MalformedXML", "Could not parse request body", http.StatusBadRequest)
 		return
 	}
@@ -158,13 +163,15 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 	// Assemble the final object
 	objPath := h.engine.ObjectPath(bucket, key)
 	if err := os.MkdirAll(filepath.Dir(objPath), 0755); err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
 	outFile, err := os.Create(objPath)
 	if err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	defer outFile.Close()
@@ -187,7 +194,8 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 		pf.Close()
 		if err != nil {
 			os.Remove(objPath)
-			writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 			return
 		}
 
@@ -344,7 +352,8 @@ func (h *ObjectHandler) UploadPartCopy(w http.ResponseWriter, r *http.Request, b
 	partPath := filepath.Join(h.multipartDir(uploadID), fmt.Sprintf("part-%05d", partNum))
 	f, err := os.Create(partPath)
 	if err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	defer f.Close()
@@ -353,7 +362,8 @@ func (h *ObjectHandler) UploadPartCopy(w http.ResponseWriter, r *http.Request, b
 	written, err := io.Copy(f, io.TeeReader(dataReader, hash))
 	if err != nil {
 		os.Remove(partPath)
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -389,7 +399,8 @@ func generateUploadID() string {
 func (h *ObjectHandler) ListMultipartUploads(w http.ResponseWriter, r *http.Request, bucket string) {
 	uploads, err := h.store.ListMultipartUploads(bucket)
 	if err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -428,7 +439,8 @@ func (h *ObjectHandler) ListParts(w http.ResponseWriter, r *http.Request, bucket
 
 	parts, err := h.store.ListParts(uploadID)
 	if err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 

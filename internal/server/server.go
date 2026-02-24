@@ -204,6 +204,12 @@ func New(cfg *config.Config) (*Server, error) {
 				})
 			}
 		})
+		// Register peer access keys so replication header is only trusted from peers
+		var peerKeys []string
+		for _, peer := range cfg.Replication.Peers {
+			peerKeys = append(peerKeys, peer.AccessKey)
+		}
+		s3h.SetReplicationPeerKeys(peerKeys)
 		slog.Info("replication enabled", "peers", len(cfg.Replication.Peers), "interval_secs", cfg.Replication.ScanIntervalSecs)
 	}
 
@@ -347,7 +353,7 @@ func (s *Server) Run() error {
 	mux.HandleFunc("/health", healthHandler(s.metrics.StartTime()))
 	mux.HandleFunc("/ready", readyHandler(s.store))
 	mux.Handle("/api/v1/", apiHandler)
-	mux.Handle("/dashboard/", middleware.SecurityHeaders(dashboard.Handler()))
+	mux.Handle("/dashboard/", dashboard.Handler())
 	mux.Handle("/metrics", s.metrics)
 
 	// Register pprof endpoints when debug mode is enabled
@@ -362,10 +368,11 @@ func (s *Server) Run() error {
 
 	mux.Handle("/", s.s3h)
 
-	// Wrap mux with middleware: panic recovery (outermost) → request ID → latency → mux
+	// Wrap mux with middleware: panic recovery (outermost) → security headers → request ID → latency → mux
 	var handler http.Handler = mux
 	handler = middleware.Latency(s.metrics, handler)
 	handler = middleware.RequestID(handler)
+	handler = middleware.SecurityHeaders(handler)
 	handler = middleware.PanicRecovery(handler)
 
 	httpServer := &http.Server{
@@ -382,7 +389,6 @@ func (s *Server) Run() error {
 		"addr", addr,
 		"data_dir", s.cfg.Storage.DataDir,
 		"metadata_dir", s.cfg.Storage.MetadataDir,
-		"access_key", s.cfg.Auth.AdminAccessKey,
 		"dashboard", fmt.Sprintf("%s://%s/dashboard/", scheme, addr),
 	)
 	if s.cfg.Auth.AdminAccessKey == "vaults3-admin" || s.cfg.Auth.AdminSecretKey == "vaults3-secret-change-me" {

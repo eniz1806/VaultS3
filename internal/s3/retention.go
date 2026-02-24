@@ -2,6 +2,8 @@ package s3
 
 import (
 	"encoding/xml"
+	"io"
+	"log/slog"
 	"net/http"
 )
 
@@ -28,7 +30,7 @@ func (h *ObjectHandler) PutBucketObjectLockConfig(w http.ResponseWriter, r *http
 			} `xml:"DefaultRetention"`
 		} `xml:"Rule"`
 	}
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := xml.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeS3Error(w, "MalformedXML", "Could not parse object lock XML", http.StatusBadRequest)
 		return
 	}
@@ -47,7 +49,8 @@ func (h *ObjectHandler) PutBucketObjectLockConfig(w http.ResponseWriter, r *http
 	}
 
 	if err := h.store.SetBucketDefaultRetention(bucket, mode, days); err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -63,7 +66,8 @@ func (h *ObjectHandler) GetBucketObjectLockConfig(w http.ResponseWriter, r *http
 
 	info, err := h.store.GetBucket(bucket)
 	if err != nil {
-		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 

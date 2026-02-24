@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -74,7 +75,10 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Rate limit check (before auth to protect against brute force)
 	if h.rateLimiter != nil {
-		clientIP := strings.SplitN(r.RemoteAddr, ":", 2)[0]
+		clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if clientIP == "" {
+			clientIP = r.RemoteAddr
+		}
 		if !h.rateLimiter.Allow(clientIP, "") {
 			writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 			return

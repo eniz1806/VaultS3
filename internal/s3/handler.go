@@ -52,6 +52,7 @@ type Handler struct {
 	onLambda          LambdaFunc
 	rateLimiter       *ratelimit.Limiter
 	accessUpdater     *metadata.AccessUpdater
+	replicationPeerKeys map[string]bool
 }
 
 func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
@@ -111,6 +112,22 @@ func (h *Handler) SetSearchUpdateFunc(fn SearchUpdateFunc) {
 func (h *Handler) SetLambdaFunc(fn LambdaFunc) {
 	h.onLambda = fn
 	h.objects.onLambda = fn
+}
+
+// SetReplicationPeerKeys sets the access keys of configured replication peers.
+func (h *Handler) SetReplicationPeerKeys(keys []string) {
+	h.replicationPeerKeys = make(map[string]bool)
+	for _, k := range keys {
+		h.replicationPeerKeys[k] = true
+	}
+}
+
+// isReplicationPeer checks if an access key belongs to a configured replication peer.
+func (h *Handler) isReplicationPeer(accessKey string) bool {
+	if h.replicationPeerKeys == nil {
+		return false
+	}
+	return h.replicationPeerKeys[accessKey]
 }
 
 // SetAccessUpdater sets the batched access updater.
@@ -260,15 +277,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Replication loop prevention: disable notification and replication callbacks
 	// for requests that originated from a replication peer.
-	if r.Header.Get("X-VaultS3-Replication") != "" {
-		h.objects.onNotification = nil
-		h.objects.onReplication = nil
-		h.objects.onLambda = nil
-		defer func() {
-			h.objects.onNotification = h.onNotification
-			h.objects.onReplication = h.onReplication
-			h.objects.onLambda = h.onLambda
-		}()
+	// Only trust the header if the authenticated identity matches a configured peer key.
+	if r.Header.Get("X-VaultS3-Replication") != "" && authRequired {
+		identity, _ := h.auth.Authenticate(r)
+		if identity != nil && h.isReplicationPeer(identity.AccessKey) {
+			h.objects.onNotification = nil
+			h.objects.onReplication = nil
+			h.objects.onLambda = nil
+			defer func() {
+				h.objects.onNotification = h.onNotification
+				h.objects.onReplication = h.onReplication
+				h.objects.onLambda = h.onLambda
+			}()
+		}
 	}
 
 	// Static website serving — intercept before normal routing

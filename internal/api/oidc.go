@@ -290,8 +290,14 @@ func (v *OIDCValidator) ValidateToken(idToken string) (*OIDCClaims, error) {
 	}
 
 	// Validate expiration
-	if time.Now().Unix() > claims.Exp {
+	now := time.Now().Unix()
+	if now > claims.Exp {
 		return nil, fmt.Errorf("token expired")
+	}
+
+	// Validate issued-at (reject tokens from the future, with 5min clock skew)
+	if claims.Iat > 0 && claims.Iat > now+300 {
+		return nil, fmt.Errorf("token issued in the future")
 	}
 
 	// Validate domain

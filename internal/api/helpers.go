@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -18,7 +19,9 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 
 func readJSON(r *http.Request, v interface{}) error {
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(v)
+	// Limit request body to 1MB to prevent memory exhaustion
+	limited := io.LimitReader(r.Body, 1<<20)
+	return json.NewDecoder(limited).Decode(v)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {

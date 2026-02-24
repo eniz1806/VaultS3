@@ -285,13 +285,24 @@ func (h *APIHandler) handleDownloadZip(w http.ResponseWriter, r *http.Request, b
 		return
 	}
 
+	// Sanitize bucket name for Content-Disposition header
+	safeBucket := strings.Map(func(r rune) rune {
+		if r == '"' || r == '\\' || r < 32 {
+			return '_'
+		}
+		return r
+	}, bucket)
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-files.zip"`, bucket))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-files.zip"`, safeBucket))
 
 	zw := zip.NewWriter(w)
 	defer zw.Close()
 
 	for _, key := range keys {
+		// Validate key to prevent zip slip
+		if err := validateObjectKey(key); err != nil {
+			continue
+		}
 		reader, _, err := h.engine.GetObject(bucket, key)
 		if err != nil {
 			continue

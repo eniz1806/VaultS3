@@ -82,8 +82,8 @@ func (a *Authenticator) resolveIdentity(accessKey string) (*iam.Identity, string
 					identity.AllowedCIDRs = user.AllowedCIDRs
 				}
 			} else {
-				// Legacy keys without a user get full access
-				identity.IsAdmin = true
+				// Keys without a linked user get no special access (default deny)
+				// They can only access resources allowed by public-read policies
 			}
 			return identity, key.SecretKey, nil
 		}

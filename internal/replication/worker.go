@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -13,6 +15,33 @@ import (
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
+
+// validatePeerURL checks that a replication peer URL does not point to internal/metadata endpoints.
+func validatePeerURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL scheme must be http or https")
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL must have a host")
+	}
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+		return fmt.Errorf("URL must not point to localhost")
+	}
+	if strings.HasPrefix(host, "169.254.") || host == "metadata.google.internal" {
+		return fmt.Errorf("URL must not point to cloud metadata service")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("URL must not point to loopback or link-local address")
+		}
+	}
+	return nil
+}
 
 // Worker handles async replication to peer VaultS3 instances.
 type Worker struct {
@@ -28,6 +57,11 @@ type Worker struct {
 func NewWorker(store *metadata.Store, engine storage.Engine, cfg config.ReplicationConfig) *Worker {
 	peers := make(map[string]config.ReplicationPeer)
 	for _, p := range cfg.Peers {
+		// Validate peer URLs against SSRF on startup
+		if err := validatePeerURL(p.URL); err != nil {
+			slog.Warn("skipping replication peer with invalid URL", "peer", p.Name, "url", p.URL, "error", err)
+			continue
+		}
 		peers[p.Name] = p
 	}
 	interval := time.Duration(cfg.ScanIntervalSecs) * time.Second

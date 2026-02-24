@@ -19,9 +19,9 @@ func (h *ObjectHandler) SelectObjectContent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Parse the XML request body
+	// Parse the XML request body (limit to 64KB)
 	var req selectRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := xml.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeS3Error(w, "MalformedXML", "Could not parse SelectObjectContentRequest", http.StatusBadRequest)
 		return
 	}
@@ -38,9 +38,16 @@ func (h *ObjectHandler) SelectObjectContent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Reject objects larger than 256MB for S3 Select to prevent OOM
+	meta, _ := h.store.GetObjectMeta(bucket, key)
+	const maxSelectSize int64 = 256 * 1024 * 1024
+	if meta != nil && meta.Size > maxSelectSize {
+		writeS3Error(w, "InvalidArgument", "Object too large for S3 Select (max 256MB)", http.StatusBadRequest)
+		return
+	}
+
 	// Read the object (handle versioned storage)
 	var reader io.ReadCloser
-	meta, _ := h.store.GetObjectMeta(bucket, key)
 	if meta != nil && meta.VersionID != "" {
 		r, _, err := h.engine.GetObjectVersion(bucket, key, meta.VersionID)
 		if err != nil {

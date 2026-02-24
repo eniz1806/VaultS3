@@ -89,7 +89,7 @@ func (h *APIHandler) handleCreateSessionToken(w http.ResponseWriter, r *http.Req
 		SourceUserID: sourceUserID,
 	}
 
-	// If an inline policy was provided, create a temporary policy and link it
+	// If an inline policy was provided, create and attach it to a synthetic STS user
 	if req.Policy != "" && sourceUserID != "" {
 		policyName := "sts-" + accessKey
 		stsPolicy := metadata.IAMPolicy{
@@ -101,10 +101,18 @@ func (h *APIHandler) handleCreateSessionToken(w http.ResponseWriter, r *http.Req
 			writeError(w, http.StatusInternalServerError, "failed to create STS policy")
 			return
 		}
-		// Override UserID to use a synthetic user that only has this policy
-		// For simplicity, STS inline policies are stored but the key still resolves
-		// via SourceUserID's policies. The inline policy is additional.
-		key.UserID = sourceUserID
+		// Create a synthetic IAM user for this STS token with only the inline policy
+		stsUser := metadata.IAMUser{
+			Name:       "sts-" + accessKey,
+			CreatedAt:  now,
+			PolicyARNs: []string{policyName},
+		}
+		if err := h.store.CreateIAMUser(stsUser); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create STS user")
+			return
+		}
+		key.UserID = stsUser.Name
+		key.SourceUserID = sourceUserID
 	}
 
 	if err := h.store.CreateAccessKey(key); err != nil {

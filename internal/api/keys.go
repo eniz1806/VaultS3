@@ -3,7 +3,6 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -57,7 +56,14 @@ func (h *APIHandler) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	var reqBody struct {
 		UserID string `json:"userId"`
 	}
-	json.NewDecoder(r.Body).Decode(&reqBody)
+	if err := readJSON(r, &reqBody); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if reqBody.UserID == "" {
+		writeError(w, http.StatusBadRequest, "userId is required")
+		return
+	}
 
 	accessKey, err := randomHex(10) // 20 hex chars
 	if err != nil {
