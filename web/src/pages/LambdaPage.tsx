@@ -17,14 +17,18 @@ export default function LambdaPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, t] = await Promise.all([getLambdaStatus(), listLambdaTriggers()])
+      const s = await getLambdaStatus()
       setStatus(s)
-      setTriggers(t || [])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load lambda data')
-    } finally {
-      setLoading(false)
+    } catch {
+      setStatus({ enabled: false, totalTriggers: 0, buckets: 0, queueDepth: 0 })
     }
+    try {
+      const t = await listLambdaTriggers()
+      setTriggers(t || [])
+    } catch {
+      setTriggers([])
+    }
+    setLoading(false)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])

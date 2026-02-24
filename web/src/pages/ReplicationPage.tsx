@@ -8,20 +8,24 @@ export default function ReplicationPage() {
   const [status, setStatus] = useState<ReplicationStatus | null>(null)
   const [queue, setQueue] = useState<ReplicationEvent[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error] = useState('')
   const [rSortField, setRSortField] = useState<RSortField>('bucket')
   const [rSortDir, setRSortDir] = useState<RSortDir>('asc')
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, q] = await Promise.all([getReplicationStatus(), getReplicationQueue(100)])
+      const s = await getReplicationStatus()
       setStatus(s)
-      setQueue(q || [])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load replication data')
-    } finally {
-      setLoading(false)
+    } catch {
+      setStatus({ enabled: false, peers: [] })
     }
+    try {
+      const q = await getReplicationQueue(100)
+      setQueue(q || [])
+    } catch {
+      setQueue([])
+    }
+    setLoading(false)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])

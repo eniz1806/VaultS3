@@ -119,6 +119,10 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Wire activity recording from S3 handler to activity log + access logger
 	s3h.SetActivityFunc(func(method, bucket, key string, status int, size int64, clientIP string) {
+		// Skip browser noise
+		if bucket == "favicon.ico" {
+			return
+		}
 		now := time.Now().UTC()
 		activityLog.Record(api.ActivityEntry{
 			Time:     now,
@@ -337,6 +341,9 @@ func (s *Server) Run() error {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard/favicon.svg", http.StatusMovedPermanently)
+	})
 	mux.HandleFunc("/health", healthHandler(s.metrics.StartTime()))
 	mux.HandleFunc("/ready", readyHandler(s.store))
 	mux.Handle("/api/v1/", apiHandler)

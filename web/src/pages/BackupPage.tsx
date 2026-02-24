@@ -24,14 +24,18 @@ export default function BackupPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [b, s] = await Promise.all([listBackups(), getBackupStatus()])
-      setBackups(b || [])
+      const s = await getBackupStatus()
       setStatus(s)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load backup data')
-    } finally {
-      setLoading(false)
+    } catch {
+      setStatus({ enabled: false, running: false, targets: 0 })
     }
+    try {
+      const b = await listBackups()
+      setBackups(b || [])
+    } catch {
+      setBackups([])
+    }
+    setLoading(false)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
