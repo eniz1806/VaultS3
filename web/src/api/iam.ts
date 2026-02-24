@@ -4,6 +4,7 @@ export interface IAMUser {
   name: string
   policyArns: string[]
   groups: string[]
+  allowedCidrs: string[]
   createdAt: string
 }
 
@@ -77,4 +78,8 @@ export function createPolicy(name: string, document: string): Promise<IAMPolicy>
 
 export function deletePolicy(name: string): Promise<void> {
   return apiFetch<void>(`/iam/policies/${name}`, { method: 'DELETE' })
+}
+
+export function setIPRestrictions(userName: string, allowedCidrs: string[]): Promise<void> {
+  return apiFetch<void>(`/iam/users/${userName}/ip-restrictions`, { method: 'PUT', body: JSON.stringify({ allowedCidrs }) })
 }

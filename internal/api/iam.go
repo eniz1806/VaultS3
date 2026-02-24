@@ -11,10 +11,11 @@ import (
 // IAM Users
 
 type iamUserResponse struct {
-	Name       string   `json:"name"`
-	CreatedAt  string   `json:"createdAt"`
-	PolicyARNs []string `json:"policyArns"`
-	Groups     []string `json:"groups"`
+	Name         string   `json:"name"`
+	CreatedAt    string   `json:"createdAt"`
+	PolicyARNs   []string `json:"policyArns"`
+	Groups       []string `json:"groups"`
+	AllowedCIDRs []string `json:"allowedCidrs"`
 }
 
 func (h *APIHandler) handleListIAMUsers(w http.ResponseWriter, _ *http.Request) {
@@ -34,11 +35,16 @@ func (h *APIHandler) handleListIAMUsers(w http.ResponseWriter, _ *http.Request) 
 		if groups == nil {
 			groups = []string{}
 		}
+		cidrs := u.AllowedCIDRs
+		if cidrs == nil {
+			cidrs = []string{}
+		}
 		items = append(items, iamUserResponse{
-			Name:       u.Name,
-			CreatedAt:  u.CreatedAt.Format(time.RFC3339),
-			PolicyARNs: policyARNs,
-			Groups:     groups,
+			Name:         u.Name,
+			CreatedAt:    u.CreatedAt.Format(time.RFC3339),
+			PolicyARNs:   policyARNs,
+			Groups:       groups,
+			AllowedCIDRs: cidrs,
 		})
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -63,10 +69,11 @@ func (h *APIHandler) handleCreateIAMUser(w http.ResponseWriter, r *http.Request)
 	}
 
 	writeJSON(w, http.StatusCreated, iamUserResponse{
-		Name:       user.Name,
-		CreatedAt:  user.CreatedAt.Format(time.RFC3339),
-		PolicyARNs: []string{},
-		Groups:     []string{},
+		Name:         user.Name,
+		CreatedAt:    user.CreatedAt.Format(time.RFC3339),
+		PolicyARNs:   []string{},
+		Groups:       []string{},
+		AllowedCIDRs: []string{},
 	})
 }
 
@@ -85,11 +92,16 @@ func (h *APIHandler) handleGetIAMUser(w http.ResponseWriter, _ *http.Request, na
 	if userGroups == nil {
 		userGroups = []string{}
 	}
+	cidrs := user.AllowedCIDRs
+	if cidrs == nil {
+		cidrs = []string{}
+	}
 	writeJSON(w, http.StatusOK, iamUserResponse{
-		Name:       user.Name,
-		CreatedAt:  user.CreatedAt.Format(time.RFC3339),
-		PolicyARNs: policyARNs,
-		Groups:     userGroups,
+		Name:         user.Name,
+		CreatedAt:    user.CreatedAt.Format(time.RFC3339),
+		PolicyARNs:   policyARNs,
+		Groups:       userGroups,
+		AllowedCIDRs: cidrs,
 	})
 }
 

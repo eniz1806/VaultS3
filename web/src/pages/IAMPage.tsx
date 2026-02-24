@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   listUsers, createUser, deleteUser, attachUserPolicy, detachUserPolicy,
-  addUserToGroup, removeUserFromGroup,
+  addUserToGroup, removeUserFromGroup, setIPRestrictions,
   listGroups, createGroup, deleteGroup, attachGroupPolicy, detachGroupPolicy,
   listPolicies, createPolicy, deletePolicy,
   type IAMUser, type IAMGroup, type IAMPolicy,
@@ -27,6 +27,7 @@ export default function IAMPage() {
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const [attachInput, setAttachInput] = useState('')
+  const [cidrInput, setCidrInput] = useState('')
 
   const fetchAll = useCallback(async () => {
     try {
@@ -113,6 +114,32 @@ export default function IAMPage() {
       fetchAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Remove from group failed')
+    }
+  }
+
+  const handleAddCIDR = async (userName: string, cidr: string) => {
+    setError('')
+    try {
+      const user = users.find(u => u.name === userName)
+      const current = user?.allowedCidrs || []
+      if (current.includes(cidr)) return
+      await setIPRestrictions(userName, [...current, cidr])
+      setCidrInput('')
+      fetchAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add CIDR')
+    }
+  }
+
+  const handleRemoveCIDR = async (userName: string, cidr: string) => {
+    setError('')
+    try {
+      const user = users.find(u => u.name === userName)
+      const updated = (user?.allowedCidrs || []).filter(c => c !== cidr)
+      await setIPRestrictions(userName, updated)
+      fetchAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove CIDR')
     }
   }
 
@@ -211,7 +238,7 @@ export default function IAMPage() {
         return (
           <div className="mt-3 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Details: {u.name}</h4>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Policies</p>
                 <div className="space-y-1">
@@ -257,6 +284,29 @@ export default function IAMPage() {
                   </select>
                   <button onClick={() => attachInput && handleAddToGroup(u.name, attachInput)}
                     disabled={!attachInput}
+                    className="text-xs px-2 py-1 rounded bg-indigo-600 text-white disabled:opacity-50">Add</button>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">IP Restrictions (CIDR)</p>
+                <div className="space-y-1">
+                  {(u.allowedCidrs || []).map(c => (
+                    <div key={c} className="flex items-center justify-between bg-white dark:bg-gray-800 rounded px-2 py-1">
+                      <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">{c}</span>
+                      <button onClick={() => handleRemoveCIDR(u.name, c)}
+                        className="text-xs text-red-500 hover:text-red-700">Remove</button>
+                    </div>
+                  ))}
+                  {(u.allowedCidrs || []).length === 0 && (
+                    <p className="text-xs text-gray-400 italic">No restrictions (all IPs allowed)</p>
+                  )}
+                </div>
+                <div className="flex gap-1 mt-2">
+                  <input type="text" value={cidrInput} onChange={e => setCidrInput(e.target.value)}
+                    placeholder="e.g. 10.0.0.0/8"
+                    className="flex-1 text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-mono" />
+                  <button onClick={() => cidrInput && handleAddCIDR(u.name, cidrInput)}
+                    disabled={!cidrInput}
                     className="text-xs px-2 py-1 rounded bg-indigo-600 text-white disabled:opacity-50">Add</button>
                 </div>
               </div>
