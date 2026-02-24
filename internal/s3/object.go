@@ -80,6 +80,14 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		return
 	}
 
+	// Enforce max single object size (5GB, per S3 spec)
+	const maxPutSize int64 = 5 * 1024 * 1024 * 1024 // 5GB
+	if r.ContentLength > maxPutSize {
+		writeS3Error(w, "EntityTooLarge", "Object size exceeds 5GB limit. Use multipart upload for larger files.", http.StatusBadRequest)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxPutSize)
+
 	if !h.checkQuota(w, bucket, r.ContentLength) {
 		return
 	}

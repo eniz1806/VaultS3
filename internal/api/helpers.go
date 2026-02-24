@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -49,6 +51,48 @@ func validateObjectKey(key string) error {
 	}
 	if strings.ContainsRune(key, 0) {
 		return fmt.Errorf("object key must not contain null bytes")
+	}
+	// Prevent path traversal
+	for _, segment := range strings.Split(key, "/") {
+		if segment == ".." {
+			return fmt.Errorf("object key must not contain '..' path segments")
+		}
+	}
+	return nil
+}
+
+// ValidateWebhookURL checks that a URL is safe to call (prevents SSRF).
+func ValidateWebhookURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL scheme must be http or https")
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL must have a host")
+	}
+	// Block well-known internal/metadata addresses
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+		return fmt.Errorf("URL must not point to localhost")
+	}
+	if strings.HasPrefix(host, "169.254.") || host == "metadata.google.internal" {
+		return fmt.Errorf("URL must not point to cloud metadata service")
+	}
+	// Block private IP ranges
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("URL must not point to loopback or link-local address")
+		}
+		privateRanges := []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"}
+		for _, cidr := range privateRanges {
+			_, network, _ := net.ParseCIDR(cidr)
+			if network.Contains(ip) {
+				return fmt.Errorf("URL must not point to private network (%s)", cidr)
+			}
+		}
 	}
 	return nil
 }

@@ -45,9 +45,15 @@ func (h *APIHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandler) handleMe(w http.ResponseWriter, _ *http.Request) {
+	// Mask access key — only show first 4 and last 4 chars
+	ak := h.cfg.Auth.AdminAccessKey
+	masked := ak
+	if len(ak) > 8 {
+		masked = ak[:4] + strings.Repeat("*", len(ak)-8) + ak[len(ak)-4:]
+	}
 	writeJSON(w, http.StatusOK, meResponse{
 		User:      "admin",
-		AccessKey: h.cfg.Auth.AdminAccessKey,
+		AccessKey: masked,
 	})
 }
 

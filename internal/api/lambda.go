@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -92,6 +93,14 @@ func (h *APIHandler) handlePutLambdaTriggers(w http.ResponseWriter, r *http.Requ
 	if err := readJSON(r, &cfg); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+
+	// Validate function URLs to prevent SSRF
+	for _, t := range cfg.Triggers {
+		if err := ValidateWebhookURL(t.FunctionURL); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid function URL: %v", err))
+			return
+		}
 	}
 
 	if err := h.store.PutLambdaConfig(bucket, cfg); err != nil {

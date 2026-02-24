@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -174,7 +176,7 @@ func (a *Authenticator) authenticatePresigned(r *http.Request) (*iam.Identity, e
 	signature := q.Get("X-Amz-Signature")
 	signedHeaders := q.Get("X-Amz-SignedHeaders")
 	dateStr := q.Get("X-Amz-Date")
-	expires := q.Get("X-Amz-Expires")
+	expiresStr := q.Get("X-Amz-Expires")
 
 	if credential == "" || signature == "" || dateStr == "" {
 		return nil, fmt.Errorf("missing presigned parameters")
@@ -185,19 +187,73 @@ func (a *Authenticator) authenticatePresigned(r *http.Request) (*iam.Identity, e
 		return nil, fmt.Errorf("invalid credential")
 	}
 
-	identity, _, err := a.resolveIdentity(credParts[0])
+	identity, secretKey, err := a.resolveIdentity(credParts[0])
 	if err != nil {
 		return nil, err
 	}
 
+	// Validate expiry
 	t, err := time.Parse("20060102T150405Z", dateStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid date: %w", err)
 	}
-	_ = expires
-	_ = signedHeaders
-	if time.Since(t) > 7*24*time.Hour {
+	expiresSecs := 604800 // default 7 days max
+	if expiresStr != "" {
+		if parsed, parseErr := strconv.Atoi(expiresStr); parseErr == nil && parsed > 0 {
+			expiresSecs = parsed
+		}
+	}
+	if time.Since(t) > time.Duration(expiresSecs)*time.Second {
 		return nil, fmt.Errorf("presigned URL expired")
+	}
+
+	// Validate signature — rebuild canonical request from query params
+	if signedHeaders == "" {
+		signedHeaders = "host"
+	}
+	region := credParts[2]
+	service := credParts[3]
+	credDate := credParts[1]
+
+	// Build canonical query string (all params except X-Amz-Signature)
+	canonicalParams := url.Values{}
+	for k, vs := range q {
+		if k == "X-Amz-Signature" {
+			continue
+		}
+		for _, v := range vs {
+			canonicalParams.Add(k, v)
+		}
+	}
+
+	canonicalHeaders := ""
+	for _, h := range strings.Split(signedHeaders, ";") {
+		h = strings.TrimSpace(h)
+		if h == "host" {
+			canonicalHeaders += fmt.Sprintf("host:%s\n", r.Host)
+		} else {
+			canonicalHeaders += fmt.Sprintf("%s:%s\n", h, strings.TrimSpace(r.Header.Get(h)))
+		}
+	}
+
+	canonicalRequest := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\nUNSIGNED-PAYLOAD",
+		r.Method,
+		uriEncode(r.URL.Path),
+		canonicalParams.Encode(),
+		canonicalHeaders,
+		signedHeaders,
+	)
+
+	scope := fmt.Sprintf("%s/%s/%s/aws4_request", credDate, region, service)
+	hash := sha256.Sum256([]byte(canonicalRequest))
+	stringToSign := fmt.Sprintf("AWS4-HMAC-SHA256\n%s\n%s\n%s",
+		dateStr, scope, hex.EncodeToString(hash[:]))
+
+	signingKey := deriveSigningKey(secretKey, credDate, region, service)
+	expectedSig := hex.EncodeToString(hmacSHA256(signingKey, []byte(stringToSign)))
+
+	if !hmac.Equal([]byte(signature), []byte(expectedSig)) {
+		return nil, fmt.Errorf("signature mismatch")
 	}
 
 	return identity, nil

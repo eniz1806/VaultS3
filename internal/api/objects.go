@@ -142,7 +142,14 @@ func (h *APIHandler) handleDownload(w http.ResponseWriter, r *http.Request, buck
 
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	// Sanitize filename: remove quotes and control characters to prevent header injection
+	safeName := strings.Map(func(r rune) rune {
+		if r == '"' || r == '\\' || r < 32 {
+			return '_'
+		}
+		return r
+	}, filename)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, safeName))
 	io.Copy(w, reader)
 }
 

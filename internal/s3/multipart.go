@@ -82,6 +82,14 @@ func (h *ObjectHandler) UploadPart(w http.ResponseWriter, r *http.Request, bucke
 		return
 	}
 
+	// Enforce max part size (5GB per S3 spec)
+	const maxPartSize int64 = 5 * 1024 * 1024 * 1024
+	if r.ContentLength > maxPartSize {
+		writeS3Error(w, "EntityTooLarge", "Part size exceeds 5GB limit", http.StatusBadRequest)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxPartSize)
+
 	partPath := filepath.Join(h.multipartDir(uploadID), fmt.Sprintf("part-%05d", partNum))
 	f, err := os.Create(partPath)
 	if err != nil {

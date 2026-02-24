@@ -137,6 +137,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	slog.Debug("S3 request", "method", r.Method, "bucket", bucket, "key", key)
 
+	// Reject path traversal in keys
+	if key != "" {
+		for _, seg := range strings.Split(key, "/") {
+			if seg == ".." {
+				writeS3Error(w, "InvalidArgument", "Key must not contain '..' path segments", http.StatusBadRequest)
+				return
+			}
+		}
+	}
+
 	// Record request metrics
 	if h.metrics != nil {
 		h.metrics.RecordRequest(r.Method)
@@ -186,16 +196,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Extract client IP early (needed for IP check + audit)
-	clientIP := r.RemoteAddr
+	// Extract client IP — use RemoteAddr for rate limiting (tamper-proof),
+	// X-Forwarded-For only for audit logging (can be spoofed)
+	rateLimitIP := r.RemoteAddr
+	if idx := strings.LastIndex(rateLimitIP, ":"); idx != -1 {
+		rateLimitIP = rateLimitIP[:idx]
+	}
+	clientIP := rateLimitIP
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 		clientIP = strings.TrimSpace(strings.SplitN(fwd, ",", 2)[0])
 	}
 
-	// Rate limit check
+	// Rate limit check (uses RemoteAddr, not X-Forwarded-For)
 	if h.rateLimiter != nil {
 		accessKeyID := extractAccessKeyFromAuth(r)
-		if !h.rateLimiter.Allow(clientIP, accessKeyID) {
+		if !h.rateLimiter.Allow(rateLimitIP, accessKeyID) {
 			w.Header().Set("Retry-After", "1")
 			writeS3Error(w, "SlowDown", "Rate limit exceeded", http.StatusTooManyRequests)
 			return

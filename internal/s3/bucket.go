@@ -3,13 +3,48 @@ package s3
 import (
 	"encoding/json"
 	"encoding/xml"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/storage"
 )
+
+// validateEndpointURL prevents SSRF by blocking private/internal URLs.
+func validateEndpointURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL scheme must be http or https")
+	}
+	host := u.Hostname()
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+		return fmt.Errorf("URL must not point to localhost")
+	}
+	if strings.HasPrefix(host, "169.254.") || host == "metadata.google.internal" {
+		return fmt.Errorf("URL must not point to metadata service")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("URL must not point to loopback or link-local address")
+		}
+		privateRanges := []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"}
+		for _, cidr := range privateRanges {
+			_, network, _ := net.ParseCIDR(cidr)
+			if network.Contains(ip) {
+				return fmt.Errorf("URL must not point to private network")
+			}
+		}
+	}
+	return nil
+}
 
 type BucketHandler struct {
 	store  *metadata.Store
@@ -594,6 +629,10 @@ func (h *BucketHandler) PutBucketNotification(w http.ResponseWriter, r *http.Req
 			writeS3Error(w, "InvalidArgument", "Topic (endpoint URL) is required", http.StatusBadRequest)
 			return
 		}
+		if err := validateEndpointURL(tc.Topic); err != nil {
+			writeS3Error(w, "InvalidArgument", fmt.Sprintf("Invalid endpoint URL: %v", err), http.StatusBadRequest)
+			return
+		}
 		var filters []metadata.NotificationFilterRule
 		for _, fr := range tc.Filter.S3Key.FilterRules {
 			filters = append(filters, metadata.NotificationFilterRule{Name: fr.Name, Value: fr.Value})
@@ -931,6 +970,10 @@ func (h *BucketHandler) PutBucketLambda(w http.ResponseWriter, r *http.Request, 
 	for i, t := range cfg.Triggers {
 		if t.FunctionURL == "" {
 			writeS3Error(w, "InvalidArgument", "function_url is required", http.StatusBadRequest)
+			return
+		}
+		if err := validateEndpointURL(t.FunctionURL); err != nil {
+			writeS3Error(w, "InvalidArgument", fmt.Sprintf("Invalid function URL: %v", err), http.StatusBadRequest)
 			return
 		}
 		if len(t.Events) == 0 {

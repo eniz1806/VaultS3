@@ -35,7 +35,13 @@ func (fs *FileSystem) bucketPath(bucket string) string {
 }
 
 func (fs *FileSystem) objectPath(bucket, key string) string {
-	return filepath.Join(fs.dataDir, bucket, key)
+	p := filepath.Join(fs.dataDir, bucket, key)
+	// Prevent path traversal — resolved path must stay under bucket dir
+	bucketDir := filepath.Join(fs.dataDir, bucket) + string(filepath.Separator)
+	if !strings.HasPrefix(p+string(filepath.Separator), bucketDir) && p != filepath.Join(fs.dataDir, bucket) {
+		return filepath.Join(fs.dataDir, bucket, "invalid-key")
+	}
+	return p
 }
 
 func (fs *FileSystem) versionPath(bucket, key, versionID string) string {

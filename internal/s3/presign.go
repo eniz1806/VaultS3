@@ -42,6 +42,14 @@ func GeneratePresignedPutURL(host, bucket, key, accessKey, secretKey, region str
 }
 
 func generatePresignedURLMethod(method, host, bucket, key, accessKey, secretKey, region string, expires time.Duration, extraParams map[string]string) string {
+	// Detect scheme from host — use https if host suggests TLS
+	scheme := "http"
+	if strings.HasPrefix(host, "https://") {
+		host = strings.TrimPrefix(host, "https://")
+		scheme = "https"
+	} else {
+		host = strings.TrimPrefix(host, "http://")
+	}
 	now := time.Now().UTC()
 	dateStr := now.Format("20060102")
 	amzDate := now.Format("20060102T150405Z")
@@ -76,7 +84,7 @@ func generatePresignedURLMethod(method, host, bucket, key, accessKey, secretKey,
 
 	params.Set("X-Amz-Signature", signature)
 
-	return fmt.Sprintf("http://%s%s?%s", host, canonicalURI, params.Encode())
+	return fmt.Sprintf("%s://%s%s?%s", scheme, host, canonicalURI, params.Encode())
 }
 
 // ValidatePresignedRestrictions checks presigned upload restrictions on an incoming request.
