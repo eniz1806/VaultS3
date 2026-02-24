@@ -1019,6 +1019,24 @@ mc ls vaults3/my-bucket/
 mc cat vaults3/my-bucket/file.txt
 ```
 
+## Security
+
+VaultS3 is designed with security in mind:
+
+- **S3 Signature V4** — full signature verification including presigned URLs
+- **Presigned URL validation** — signature, expiry, and restrictions enforced server-side
+- **Path traversal protection** — `..` segments rejected at S3, API, and filesystem layers
+- **SSRF prevention** — webhook, lambda, and notification URLs blocked from targeting localhost, private IPs, and cloud metadata endpoints
+- **Upload size limits** — 5GB per PUT (S3 spec), enforced with `http.MaxBytesReader`
+- **Rate limiting** — per-IP token bucket using `RemoteAddr` (not spoofable via `X-Forwarded-For`)
+- **AES-256-GCM encryption at rest** — optional, with SSE headers
+- **IAM with default-deny** — policy evaluation engine with wildcard matching
+- **Security headers** — CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
+- **Non-root Docker** — container runs as `vaults3` user (UID 1000)
+- **Default credential warning** — startup log warns if admin credentials haven't been changed
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting policy and deployment best practices.
+
 ## Project Structure
 
 ```

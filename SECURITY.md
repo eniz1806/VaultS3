@@ -53,15 +53,31 @@ The following are in scope:
 
 VaultS3 includes multiple security layers:
 
-- **S3 Signature V4** authentication
+- **S3 Signature V4** authentication with full signature verification (including presigned URLs)
 - **AES-256-GCM** encryption at rest
-- **JWT-based** dashboard authentication (24h tokens)
+- **JWT-based** dashboard authentication (24h tokens, admin key masked in responses)
 - **IAM policies** with default-deny evaluation
 - **Security headers** (CSP, X-Frame-Options, HSTS, X-Content-Type-Options, Referrer-Policy)
 - **CORS origin validation** (same-origin + localhost only)
-- **API rate limiting** (token bucket per IP)
-- **Input validation** (bucket names, object keys)
+- **API rate limiting** (token bucket per RemoteAddr IP, not spoofable via X-Forwarded-For)
+- **Input validation** (DNS-compatible bucket names, object key length/null byte/path traversal checks)
+- **Path traversal prevention** (rejects `..` segments in object keys at S3 handler, API, and filesystem layers)
+- **SSRF protection** (webhook, notification, and lambda function URLs validated against localhost, private IPs, link-local, and cloud metadata endpoints)
+- **Upload size limits** (5GB per PUT object, 5GB per multipart part — enforced via `http.MaxBytesReader`)
 - **IP allowlist/blocklist** (global and per-user CIDR)
 - **Audit trail** with auto-pruning
 - **Object locking (WORM)** for compliance
 - **STS temporary credentials** with auto-expiry
+- **Content-Disposition sanitization** (filenames escaped to prevent header injection)
+- **Non-root Docker container** (runs as `vaults3` user, UID 1000)
+- **Default credential warning** (startup log warning when using default admin credentials)
+
+## Deployment Best Practices
+
+- **Always change default credentials** — set `VAULTS3_ACCESS_KEY` and `VAULTS3_SECRET_KEY` environment variables
+- **Use HTTPS in production** — set `VAULTS3_TLS_CERT` and `VAULTS3_TLS_KEY`, or run behind a reverse proxy with TLS termination
+- **Run behind a reverse proxy** (nginx, Caddy, Traefik) for additional rate limiting, IP filtering, and access logging
+- **Enable encryption at rest** — set `VAULTS3_ENCRYPTION_KEY` with a random 64-char hex key (`openssl rand -hex 32`)
+- **Restrict network access** — use firewall rules to limit who can reach port 9000
+- **Monitor the audit trail** — review `/api/v1/audit` for suspicious activity
+- **Keep VaultS3 updated** — pull the latest Docker image regularly
