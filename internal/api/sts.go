@@ -21,7 +21,7 @@ func (h *APIHandler) handleCreateSessionToken(w http.ResponseWriter, r *http.Req
 		Policy       string `json:"policy,omitempty"` // optional inline policy to scope down
 		UserID       string `json:"userId,omitempty"` // which IAM user to create STS for (admin only)
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -332,17 +335,21 @@ func (s *Server) Run() error {
 
 	// Wire OIDC validator if enabled
 	if s.cfg.OIDC.Enabled && s.cfg.OIDC.IssuerURL != "" {
-		oidcValidator, err := api.NewOIDCValidator(
-			s.cfg.OIDC.IssuerURL,
-			s.cfg.OIDC.ClientID,
-			s.cfg.OIDC.AllowedDomains,
-			s.cfg.OIDC.JWKSCacheSecs,
-		)
-		if err != nil {
-			slog.Warn("OIDC setup failed", "error", err)
+		if err := validateExternalURL(s.cfg.OIDC.IssuerURL); err != nil {
+			slog.Warn("OIDC issuer URL rejected", "url", s.cfg.OIDC.IssuerURL, "error", err)
 		} else {
-			apiHandler.SetOIDCValidator(oidcValidator)
-			slog.Info("OIDC enabled", "issuer", s.cfg.OIDC.IssuerURL)
+			oidcValidator, err := api.NewOIDCValidator(
+				s.cfg.OIDC.IssuerURL,
+				s.cfg.OIDC.ClientID,
+				s.cfg.OIDC.AllowedDomains,
+				s.cfg.OIDC.JWKSCacheSecs,
+			)
+			if err != nil {
+				slog.Warn("OIDC setup failed", "error", err)
+			} else {
+				apiHandler.SetOIDCValidator(oidcValidator)
+				slog.Info("OIDC enabled", "issuer", s.cfg.OIDC.IssuerURL)
+			}
 		}
 	}
 
@@ -523,6 +530,33 @@ func initBuiltinPolicies(store *metadata.Store) {
 		// Use CreateIAMPolicy which is a no-op if already exists
 		store.CreateIAMPolicy(p)
 	}
+}
+
+// validateExternalURL checks that a URL does not point to internal/metadata endpoints (SSRF prevention).
+func validateExternalURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL scheme must be http or https")
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL must have a host")
+	}
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+		return fmt.Errorf("URL must not point to localhost")
+	}
+	if strings.HasPrefix(host, "169.254.") || host == "metadata.google.internal" {
+		return fmt.Errorf("URL must not point to cloud metadata service")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
+			return fmt.Errorf("URL must not point to loopback, link-local, or private address")
+		}
+	}
+	return nil
 }
 
 func (s *Server) Close() {

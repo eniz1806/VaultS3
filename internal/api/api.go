@@ -108,6 +108,20 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Admin-only routes: IAM, keys, STS, audit, backups, settings, lambda, replication
+	adminPaths := strings.HasPrefix(path, "/keys") ||
+		strings.HasPrefix(path, "/iam/") ||
+		strings.HasPrefix(path, "/sts/") ||
+		path == "/audit" ||
+		strings.HasPrefix(path, "/backups/trigger") ||
+		strings.HasPrefix(path, "/lambda/") ||
+		path == "/settings"
+
+	if adminPaths && !h.isAdminUser(r) {
+		writeError(w, http.StatusForbidden, "admin access required")
+		return
+	}
+
 	switch {
 	case path == "/auth/me" && r.Method == http.MethodGet:
 		h.handleMe(w, r)
@@ -122,7 +136,7 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/buckets/"):
 		h.routeBucket(w, r, strings.TrimPrefix(path, "/buckets/"))
 
-	// Key management routes
+	// Key management routes (admin only)
 	case path == "/keys" && r.Method == http.MethodGet:
 		h.handleListKeys(w, r)
 
@@ -133,15 +147,15 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accessKey := strings.TrimPrefix(path, "/keys/")
 		h.handleDeleteKey(w, r, accessKey)
 
-	// STS routes
+	// STS routes (admin only)
 	case path == "/sts/session-token" && r.Method == http.MethodPost:
 		h.handleCreateSessionToken(w, r)
 
-	// Audit trail route
+	// Audit trail route (admin only)
 	case path == "/audit" && r.Method == http.MethodGet:
 		h.handleListAudit(w, r)
 
-	// IAM User routes
+	// IAM User routes (admin only)
 	case path == "/iam/users" && r.Method == http.MethodGet:
 		h.handleListIAMUsers(w, r)
 	case path == "/iam/users" && r.Method == http.MethodPost:
@@ -149,7 +163,7 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/iam/users/"):
 		h.routeIAMUser(w, r, strings.TrimPrefix(path, "/iam/users/"))
 
-	// IAM Group routes
+	// IAM Group routes (admin only)
 	case path == "/iam/groups" && r.Method == http.MethodGet:
 		h.handleListIAMGroups(w, r)
 	case path == "/iam/groups" && r.Method == http.MethodPost:
@@ -157,7 +171,7 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/iam/groups/"):
 		h.routeIAMGroup(w, r, strings.TrimPrefix(path, "/iam/groups/"))
 
-	// IAM Policy routes
+	// IAM Policy routes (admin only)
 	case path == "/iam/policies" && r.Method == http.MethodGet:
 		h.handleListIAMPolicies(w, r)
 	case path == "/iam/policies" && r.Method == http.MethodPost:
@@ -220,7 +234,7 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/backups/status" && r.Method == http.MethodGet:
 		h.handleBackupStatus(w, r)
 
-	// Lambda trigger routes
+	// Lambda trigger routes (admin only)
 	case strings.HasPrefix(path, "/lambda/"):
 		h.routeLambda(w, r, strings.TrimPrefix(path, "/lambda/"))
 
@@ -230,7 +244,7 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/replication/queue" && r.Method == http.MethodGet:
 		h.handleReplicationQueue(w, r)
 
-	// Settings route
+	// Settings route (admin only)
 	case path == "/settings" && r.Method == http.MethodGet:
 		h.handleSettings(w, r)
 

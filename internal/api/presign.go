@@ -21,7 +21,7 @@ type presignRequest struct {
 
 func (h *APIHandler) handleGeneratePresign(w http.ResponseWriter, r *http.Request) {
 	var req presignRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

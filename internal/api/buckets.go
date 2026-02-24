@@ -155,8 +155,8 @@ func (h *APIHandler) handlePutBucketPolicy(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
 	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1MB limit
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read request body")
 		return

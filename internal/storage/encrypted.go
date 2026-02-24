@@ -44,9 +44,16 @@ func (e *EncryptedEngine) DeleteBucketDir(bucket string) error {
 	return e.inner.DeleteBucketDir(bucket)
 }
 
+// maxEncryptedSize is the maximum object size for in-memory encryption (1GB).
+// Larger objects risk OOM due to 3x RAM amplification (plaintext + ciphertext + output).
+const maxEncryptedSize int64 = 1 * 1024 * 1024 * 1024
+
 func (e *EncryptedEngine) PutObject(bucket, key string, reader io.Reader, size int64) (int64, string, error) {
+	if size > maxEncryptedSize {
+		return 0, "", fmt.Errorf("object too large for encryption (max %dMB)", maxEncryptedSize/(1024*1024))
+	}
 	// Read all plaintext into memory for encryption
-	plaintext, err := io.ReadAll(reader)
+	plaintext, err := io.ReadAll(io.LimitReader(reader, maxEncryptedSize+1))
 	if err != nil {
 		return 0, "", fmt.Errorf("read plaintext: %w", err)
 	}
@@ -125,7 +132,10 @@ func (e *EncryptedEngine) BucketSize(bucket string) (int64, int64, error) {
 }
 
 func (e *EncryptedEngine) PutObjectVersion(bucket, key, versionID string, reader io.Reader, size int64) (int64, string, error) {
-	plaintext, err := io.ReadAll(reader)
+	if size > maxEncryptedSize {
+		return 0, "", fmt.Errorf("object too large for encryption (max %dMB)", maxEncryptedSize/(1024*1024))
+	}
+	plaintext, err := io.ReadAll(io.LimitReader(reader, maxEncryptedSize+1))
 	if err != nil {
 		return 0, "", fmt.Errorf("read plaintext: %w", err)
 	}

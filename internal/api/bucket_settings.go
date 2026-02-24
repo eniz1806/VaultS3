@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/eniz1806/VaultS3/internal/metadata"
@@ -22,7 +21,7 @@ func (h *APIHandler) handlePutBucketVersioning(w http.ResponseWriter, r *http.Re
 	var req struct {
 		Versioning string `json:"versioning"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -64,7 +63,7 @@ func (h *APIHandler) handlePutLifecycleRule(w http.ResponseWriter, r *http.Reque
 		Prefix         string `json:"prefix"`
 		Status         string `json:"status"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -114,7 +113,7 @@ func (h *APIHandler) handlePutCORSConfig(w http.ResponseWriter, r *http.Request,
 	var req struct {
 		Rules []metadata.CORSRule `json:"rules"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

@@ -146,22 +146,43 @@ func (h *APIHandler) handleOIDCConfig(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *APIHandler) authenticate(r *http.Request) error {
+	_, err := h.authenticateUser(r)
+	return err
+}
+
+// authenticateUser validates JWT and returns the subject (username).
+func (h *APIHandler) authenticateUser(r *http.Request) (string, error) {
 	// Check Authorization header first
 	auth := r.Header.Get("Authorization")
 	if auth != "" {
 		token := strings.TrimPrefix(auth, "Bearer ")
 		if token == auth {
-			return fmt.Errorf("invalid authorization format")
+			return "", fmt.Errorf("invalid authorization format")
 		}
-		_, err := h.jwt.Validate(token)
-		return err
+		claims, err := h.jwt.Validate(token)
+		if err != nil {
+			return "", err
+		}
+		return claims.Sub, nil
 	}
 
 	// Fall back to query param (for browser download links)
 	if token := r.URL.Query().Get("token"); token != "" {
-		_, err := h.jwt.Validate(token)
-		return err
+		claims, err := h.jwt.Validate(token)
+		if err != nil {
+			return "", err
+		}
+		return claims.Sub, nil
 	}
 
-	return fmt.Errorf("missing authorization")
+	return "", fmt.Errorf("missing authorization")
+}
+
+// isAdminUser returns true if the user is the admin user.
+func (h *APIHandler) isAdminUser(r *http.Request) bool {
+	user, err := h.authenticateUser(r)
+	if err != nil {
+		return false
+	}
+	return user == "admin"
 }

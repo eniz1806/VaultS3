@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 
@@ -108,7 +107,7 @@ func (h *APIHandler) handleCreateTag(w http.ResponseWriter, r *http.Request) {
 		VersionID string `json:"versionId"`
 		Tag       string `json:"tag"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -165,7 +164,7 @@ func (h *APIHandler) handleRollback(w http.ResponseWriter, r *http.Request) {
 		Key       string `json:"key"`
 		VersionID string `json:"versionId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

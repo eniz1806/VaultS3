@@ -54,7 +54,7 @@ func (h *APIHandler) handleCreateIAMUser(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+	if err := readJSON(r, &req); err != nil || req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
@@ -117,7 +117,7 @@ func (h *APIHandler) handleAttachUserPolicy(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		PolicyName string `json:"policyName"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PolicyName == "" {
+	if err := readJSON(r, &req); err != nil || req.PolicyName == "" {
 		writeError(w, http.StatusBadRequest, "policyName is required")
 		return
 	}
@@ -176,7 +176,7 @@ func (h *APIHandler) handleAddUserToGroup(w http.ResponseWriter, r *http.Request
 	var req struct {
 		GroupName string `json:"groupName"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.GroupName == "" {
+	if err := readJSON(r, &req); err != nil || req.GroupName == "" {
 		writeError(w, http.StatusBadRequest, "groupName is required")
 		return
 	}
@@ -263,7 +263,7 @@ func (h *APIHandler) handleCreateIAMGroup(w http.ResponseWriter, r *http.Request
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+	if err := readJSON(r, &req); err != nil || req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
@@ -296,7 +296,7 @@ func (h *APIHandler) handleAttachGroupPolicy(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		PolicyName string `json:"policyName"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PolicyName == "" {
+	if err := readJSON(r, &req); err != nil || req.PolicyName == "" {
 		writeError(w, http.StatusBadRequest, "policyName is required")
 		return
 	}
@@ -380,7 +380,7 @@ func (h *APIHandler) handleCreateIAMPolicy(w http.ResponseWriter, r *http.Reques
 		Name     string `json:"name"`
 		Document string `json:"document"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.Document == "" {
+	if err := readJSON(r, &req); err != nil || req.Name == "" || req.Document == "" {
 		writeError(w, http.StatusBadRequest, "name and document are required")
 		return
 	}
@@ -423,7 +423,7 @@ func (h *APIHandler) handleSetIPRestrictions(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		AllowedCIDRs []string `json:"allowedCidrs"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

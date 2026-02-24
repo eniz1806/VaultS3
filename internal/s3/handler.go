@@ -3,6 +3,7 @@ package s3
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 
@@ -35,23 +36,23 @@ type LambdaFunc func(eventType, bucket, key string, size int64, etag, versionID 
 
 // Handler routes incoming S3 API requests to the appropriate handler.
 type Handler struct {
-	store             *metadata.Store
-	engine            storage.Engine
-	auth              *Authenticator
-	buckets           *BucketHandler
-	objects           *ObjectHandler
-	encryptionEnabled bool
-	domain            string // base domain for virtual-hosted style URLs
-	metrics           *metrics.Collector
-	onActivity        ActivityFunc
-	onAudit           AuditFunc
-	onNotification    NotificationFunc
-	onReplication     ReplicationFunc
-	onScan            ScanFunc
-	onSearchUpdate    SearchUpdateFunc
-	onLambda          LambdaFunc
-	rateLimiter       *ratelimit.Limiter
-	accessUpdater     *metadata.AccessUpdater
+	store               *metadata.Store
+	engine              storage.Engine
+	auth                *Authenticator
+	buckets             *BucketHandler
+	objects             *ObjectHandler
+	encryptionEnabled   bool
+	domain              string // base domain for virtual-hosted style URLs
+	metrics             *metrics.Collector
+	onActivity          ActivityFunc
+	onAudit             AuditFunc
+	onNotification      NotificationFunc
+	onReplication       ReplicationFunc
+	onScan              ScanFunc
+	onSearchUpdate      SearchUpdateFunc
+	onLambda            LambdaFunc
+	rateLimiter         *ratelimit.Limiter
+	accessUpdater       *metadata.AccessUpdater
 	replicationPeerKeys map[string]bool
 }
 
@@ -215,9 +216,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Extract client IP — use RemoteAddr for rate limiting (tamper-proof),
 	// X-Forwarded-For only for audit logging (can be spoofed)
-	rateLimitIP := r.RemoteAddr
-	if idx := strings.LastIndex(rateLimitIP, ":"); idx != -1 {
-		rateLimitIP = rateLimitIP[:idx]
+	rateLimitIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if rateLimitIP == "" {
+		rateLimitIP = r.RemoteAddr
 	}
 	clientIP := rateLimitIP
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
@@ -275,20 +276,36 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Replication loop prevention: disable notification and replication callbacks
-	// for requests that originated from a replication peer.
-	// Only trust the header if the authenticated identity matches a configured peer key.
+	// Replication loop prevention: use a per-request ObjectHandler copy with
+	// notification/replication/lambda callbacks disabled for replication peers.
+	// This avoids mutating shared state from concurrent goroutines.
 	if r.Header.Get("X-VaultS3-Replication") != "" && authRequired {
 		identity, _ := h.auth.Authenticate(r)
 		if identity != nil && h.isReplicationPeer(identity.AccessKey) {
-			h.objects.onNotification = nil
-			h.objects.onReplication = nil
-			h.objects.onLambda = nil
-			defer func() {
-				h.objects.onNotification = h.onNotification
-				h.objects.onReplication = h.onReplication
-				h.objects.onLambda = h.onLambda
-			}()
+			replicaObjects := *h.objects
+			replicaObjects.onNotification = nil
+			replicaObjects.onReplication = nil
+			replicaObjects.onLambda = nil
+			h = &Handler{
+				store:               h.store,
+				engine:              h.engine,
+				auth:                h.auth,
+				buckets:             h.buckets,
+				objects:             &replicaObjects,
+				encryptionEnabled:   h.encryptionEnabled,
+				domain:              h.domain,
+				metrics:             h.metrics,
+				onActivity:          h.onActivity,
+				onAudit:             h.onAudit,
+				onNotification:      h.onNotification,
+				onReplication:       h.onReplication,
+				onScan:              h.onScan,
+				onSearchUpdate:      h.onSearchUpdate,
+				onLambda:            h.onLambda,
+				rateLimiter:         h.rateLimiter,
+				accessUpdater:       h.accessUpdater,
+				replicationPeerKeys: h.replicationPeerKeys,
+			}
 		}
 	}
 
@@ -650,6 +667,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if uploadID := q.Get("uploadId"); uploadID != "" {
+			// Validate uploadID is hex-only to prevent path traversal
+			if !isValidUploadID(uploadID) {
+				writeS3Error(w, "InvalidArgument", "Invalid uploadId", http.StatusBadRequest)
+				return
+			}
 			switch r.Method {
 			case http.MethodGet:
 				h.objects.ListParts(w, r, bucket, key, uploadID)
@@ -850,6 +872,19 @@ func matchMethod(allowed []string, method string) bool {
 		}
 	}
 	return false
+}
+
+// isValidUploadID checks that an upload ID contains only hex characters.
+func isValidUploadID(id string) bool {
+	if len(id) == 0 || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 // extractAccessKeyFromAuth quickly extracts the access key from an Authorization header

@@ -50,7 +50,7 @@ func (h *ObjectHandler) PutBucketObjectLockConfig(w http.ResponseWriter, r *http
 
 	if err := h.store.SetBucketDefaultRetention(bucket, mode, days); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -67,7 +67,7 @@ func (h *ObjectHandler) GetBucketObjectLockConfig(w http.ResponseWriter, r *http
 	info, err := h.store.GetBucket(bucket)
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 

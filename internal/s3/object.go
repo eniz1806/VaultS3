@@ -163,7 +163,7 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 	written, etag, err := h.engine.PutObject(bucket, key, r.Body, r.ContentLength)
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -445,7 +445,7 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 	// Non-versioned: delete normally
 	if err := h.engine.DeleteObject(bucket, key); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -530,7 +530,7 @@ func (h *ObjectHandler) HeadObject(w http.ResponseWriter, r *http.Request, bucke
 			size, err := h.engine.ObjectSize(bucket, key)
 			if err != nil {
 				slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+				writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 				return
 			}
 			w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
@@ -595,7 +595,7 @@ func (h *ObjectHandler) CopyObject(w http.ResponseWriter, r *http.Request, bucke
 	written, etag, err := h.engine.PutObject(bucket, key, reader, size)
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -721,7 +721,7 @@ func (h *ObjectHandler) PutObjectTagging(w http.ResponseWriter, r *http.Request,
 	meta, err := h.store.GetObjectMeta(bucket, key)
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -732,7 +732,7 @@ func (h *ObjectHandler) PutObjectTagging(w http.ResponseWriter, r *http.Request,
 
 	if err := h.store.PutObjectMeta(*meta); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -818,7 +818,7 @@ func (h *ObjectHandler) ListObjectVersions(w http.ResponseWriter, r *http.Reques
 	versions, truncated, err := h.store.ListObjectVersions(bucket, prefix, keyMarker, versionMarker, maxKeys)
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -904,7 +904,7 @@ func (h *ObjectHandler) ListObjects(w http.ResponseWriter, r *http.Request, buck
 	objects, truncated, err := h.engine.ListObjects(bucket, prefix, startAfter, maxKeys)
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 

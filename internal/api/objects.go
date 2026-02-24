@@ -2,7 +2,6 @@ package api
 
 import (
 	"archive/zip"
-	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -231,7 +230,7 @@ func (h *APIHandler) handleBulkDelete(w http.ResponseWriter, r *http.Request, bu
 	var req struct {
 		Keys []string `json:"keys"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

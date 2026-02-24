@@ -57,7 +57,7 @@ func (h *BucketHandler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 	buckets, err := h.store.ListBuckets()
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -101,7 +101,7 @@ func (h *BucketHandler) CreateBucket(w http.ResponseWriter, r *http.Request, buc
 	if err := h.engine.CreateBucketDir(bucket); err != nil {
 		h.store.DeleteBucket(bucket) // rollback
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -120,7 +120,7 @@ func (h *BucketHandler) DeleteBucket(w http.ResponseWriter, r *http.Request, buc
 	objects, _, err := h.engine.ListObjects(bucket, "", "", 1)
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	if len(objects) > 0 {
@@ -130,13 +130,13 @@ func (h *BucketHandler) DeleteBucket(w http.ResponseWriter, r *http.Request, buc
 
 	if err := h.engine.DeleteBucketDir(bucket); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
 	if err := h.store.DeleteBucket(bucket); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -162,7 +162,7 @@ func (h *BucketHandler) PutBucketPolicy(w http.ResponseWriter, r *http.Request, 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 20*1024)) // 20KB limit
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -175,7 +175,7 @@ func (h *BucketHandler) PutBucketPolicy(w http.ResponseWriter, r *http.Request, 
 
 	if err := h.store.PutBucketPolicy(bucket, body); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -229,7 +229,7 @@ func (h *BucketHandler) PutBucketQuota(w http.ResponseWriter, r *http.Request, b
 
 	if err := h.store.UpdateBucketQuota(bucket, req.MaxSizeBytes, req.MaxObjects); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -246,7 +246,7 @@ func (h *BucketHandler) GetBucketQuota(w http.ResponseWriter, r *http.Request, b
 	info, err := h.store.GetBucket(bucket)
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -311,7 +311,7 @@ func (h *BucketHandler) PutBucketLifecycle(w http.ResponseWriter, r *http.Reques
 		Status:         rule.Status,
 	}); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -392,7 +392,7 @@ func (h *BucketHandler) PutBucketVersioning(w http.ResponseWriter, r *http.Reque
 
 	if err := h.store.SetBucketVersioning(bucket, req.Status); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -451,7 +451,7 @@ func (h *BucketHandler) PutBucketWebsite(w http.ResponseWriter, r *http.Request,
 		ErrorDocument: req.ErrorDocument.Key,
 	}); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -544,7 +544,7 @@ func (h *BucketHandler) PutBucketCORS(w http.ResponseWriter, r *http.Request, bu
 
 	if err := h.store.PutCORSConfig(bucket, metadata.CORSConfig{Rules: rules}); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -665,7 +665,7 @@ func (h *BucketHandler) PutBucketNotification(w http.ResponseWriter, r *http.Req
 
 	if err := h.store.PutNotificationConfig(bucket, cfg); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -775,7 +775,7 @@ func (h *BucketHandler) PutBucketEncryption(w http.ResponseWriter, r *http.Reque
 		KMSKeyID:     rule.DefaultEncryption.KMSKeyID,
 	}); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -846,7 +846,7 @@ func (h *BucketHandler) PutPublicAccessBlock(w http.ResponseWriter, r *http.Requ
 		RestrictPublicBuckets: req.RestrictPublicBuckets,
 	}); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -918,7 +918,7 @@ func (h *BucketHandler) PutBucketLogging(w http.ResponseWriter, r *http.Request,
 		TargetPrefix: req.LoggingEnabled.TargetPrefix,
 	}); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -1005,7 +1005,7 @@ func (h *BucketHandler) PutBucketLambda(w http.ResponseWriter, r *http.Request, 
 
 	if err := h.store.PutLambdaConfig(bucket, cfg); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -1080,7 +1080,7 @@ func (h *BucketHandler) PutBucketTagging(w http.ResponseWriter, r *http.Request,
 	}
 	if err := h.store.PutBucketTags(bucket, tags); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1095,7 +1095,7 @@ func (h *BucketHandler) GetBucketTagging(w http.ResponseWriter, r *http.Request,
 	tags, err := h.store.GetBucketTags(bucket)
 	if err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	resp := taggingResponse{
@@ -1115,7 +1115,7 @@ func (h *BucketHandler) DeleteBucketTagging(w http.ResponseWriter, r *http.Reque
 	}
 	if err := h.store.DeleteBucketTags(bucket); err != nil {
 		slog.Error("internal error", "error", err)
-			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -1036,6 +1036,13 @@ VaultS3 is designed with security in mind:
 - **Non-root Docker** — container runs as `vaults3` user (UID 1000)
 - **Default credential warning** — startup log warns if admin credentials haven't been changed
 - **Error message sanitization** — OIDC and health check errors return generic messages, preventing internal detail leaking
+- **Race condition safety** — Replication handler creates per-request struct copy instead of mutating shared state
+- **UploadID validation** — Hex-only regex validation prevents path traversal via crafted multipart upload IDs
+- **Bounded request bodies** — All JSON API endpoints use `readJSON()` with 1MB `io.LimitReader`; bucket policy body capped at 1MB
+- **OIDC SSRF prevention** — Issuer URL validated against loopback, private, and link-local addresses before JWKS discovery
+- **IPv6-safe rate limiting** — Uses `net.SplitHostPort` for correct IP extraction from IPv6 `[::1]:port` addresses
+- **OIDC authorization layer** — Dashboard admin routes (IAM, keys, STS, audit, settings, lambda, backups) restricted to admin user; OIDC users get read-only access
+- **Encryption size cap** — 1GB max object size for encrypted writes prevents OOM from 3x RAM amplification
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting policy and deployment best practices.
 

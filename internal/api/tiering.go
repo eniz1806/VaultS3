@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/eniz1806/VaultS3/internal/tiering"
@@ -26,7 +25,7 @@ func (h *APIHandler) handleTieringMigrate(w http.ResponseWriter, r *http.Request
 		Key       string `json:"key"`
 		Direction string `json:"direction"` // "hot" or "cold"
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
