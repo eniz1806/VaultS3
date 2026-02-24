@@ -340,7 +340,11 @@ server:
 ```bash
 # From Docker Hub
 docker pull eniz1806/vaults3
-docker run -p 9000:9000 -v ./data:/data -v ./metadata:/metadata eniz1806/vaults3
+docker run -p 9000:9000 \
+  -e VAULTS3_ACCESS_KEY=myadmin \
+  -e VAULTS3_SECRET_KEY=mysupersecret \
+  -v ./data:/data -v ./metadata:/metadata \
+  eniz1806/vaults3
 
 # Or build locally
 docker build -t vaults3 .
@@ -348,6 +352,24 @@ docker run -p 9000:9000 -v ./data:/data -v ./metadata:/metadata vaults3
 ```
 
 Images are automatically published to [Docker Hub](https://hub.docker.com/r/eniz1806/vaults3) on every push to `main`.
+
+#### Environment Variables
+
+All settings can be overridden via environment variables (takes precedence over config file):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VAULTS3_ACCESS_KEY` | Admin access key | `vaults3-admin` |
+| `VAULTS3_SECRET_KEY` | Admin secret key | `vaults3-secret-change-me` |
+| `VAULTS3_PORT` | Server port | `9000` |
+| `VAULTS3_ADDRESS` | Bind address | `0.0.0.0` |
+| `VAULTS3_DOMAIN` | Domain for virtual-hosted URLs | _(empty)_ |
+| `VAULTS3_DATA_DIR` | Object storage directory | `./data` |
+| `VAULTS3_METADATA_DIR` | BoltDB metadata directory | `./metadata` |
+| `VAULTS3_ENCRYPTION_KEY` | 64-char hex key (enables encryption) | _(disabled)_ |
+| `VAULTS3_TLS_CERT` | TLS certificate file path | _(disabled)_ |
+| `VAULTS3_TLS_KEY` | TLS private key file path | _(disabled)_ |
+| `VAULTS3_LOG_LEVEL` | Log level (`debug`, `info`, `warn`, `error`) | `info` |
 
 ### Object Versioning
 

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -279,6 +280,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	// Apply environment variable overrides
+	applyEnvOverrides(cfg)
+
 	// Validate encryption config
 	if cfg.Encryption.Enabled {
 		if _, err := cfg.Encryption.KeyBytes(); err != nil {
@@ -287,6 +291,50 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// applyEnvOverrides applies environment variable overrides to the config.
+// Environment variables take precedence over YAML config values.
+func applyEnvOverrides(cfg *Config) {
+	if v := os.Getenv("VAULTS3_ACCESS_KEY"); v != "" {
+		cfg.Auth.AdminAccessKey = v
+	}
+	if v := os.Getenv("VAULTS3_SECRET_KEY"); v != "" {
+		cfg.Auth.AdminSecretKey = v
+	}
+	if v := os.Getenv("VAULTS3_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.Server.Port = p
+		}
+	}
+	if v := os.Getenv("VAULTS3_ADDRESS"); v != "" {
+		cfg.Server.Address = v
+	}
+	if v := os.Getenv("VAULTS3_DOMAIN"); v != "" {
+		cfg.Server.Domain = v
+	}
+	if v := os.Getenv("VAULTS3_DATA_DIR"); v != "" {
+		cfg.Storage.DataDir = v
+	}
+	if v := os.Getenv("VAULTS3_METADATA_DIR"); v != "" {
+		cfg.Storage.MetadataDir = v
+	}
+	if v := os.Getenv("VAULTS3_ENCRYPTION_KEY"); v != "" {
+		cfg.Encryption.Enabled = true
+		cfg.Encryption.Key = v
+	}
+	if v := os.Getenv("VAULTS3_TLS_CERT"); v != "" {
+		cfg.Server.TLS.CertFile = v
+	}
+	if v := os.Getenv("VAULTS3_TLS_KEY"); v != "" {
+		cfg.Server.TLS.KeyFile = v
+	}
+	if os.Getenv("VAULTS3_TLS_CERT") != "" && os.Getenv("VAULTS3_TLS_KEY") != "" {
+		cfg.Server.TLS.Enabled = true
+	}
+	if v := os.Getenv("VAULTS3_LOG_LEVEL"); v != "" {
+		cfg.Logging.Level = v
+	}
 }
 
 func (c *Config) ListenAddr() string {

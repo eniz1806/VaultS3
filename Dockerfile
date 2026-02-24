@@ -21,6 +21,9 @@ RUN apk add --no-cache ca-certificates
 COPY --from=builder /vaults3 /usr/local/bin/vaults3
 COPY configs/vaults3.yaml /etc/vaults3/vaults3.yaml
 
+ENV VAULTS3_ACCESS_KEY=""
+ENV VAULTS3_SECRET_KEY=""
+
 EXPOSE 9000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
