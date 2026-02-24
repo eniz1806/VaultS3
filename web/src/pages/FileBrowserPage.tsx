@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
-import { listObjects, deleteObject, getDownloadUrl, type ObjectItem } from '../api/objects'
+import { listObjects, deleteObject, bulkDeleteObjects, getDownloadUrl, getDownloadZipUrl, type ObjectItem } from '../api/objects'
 import UploadDropzone from '../components/UploadDropzone'
+import CopyButton from '../components/CopyButton'
 
 type SortField = 'name' | 'size' | 'type' | 'modified'
 type SortDir = 'asc' | 'desc'
@@ -30,6 +31,11 @@ export default function FileBrowserPage() {
   const [previewContent, setPreviewContent] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
 
+  // Multi-select
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
+
   const fetchObjects = useCallback(async () => {
     if (!bucket) return
     setLoading(true)
@@ -38,6 +44,7 @@ export default function FileBrowserPage() {
       const data = await listObjects(bucket, prefix)
       setObjects(data.objects || [])
       setPage(0)
+      setSelectedKeys(new Set())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to list objects')
     } finally {
@@ -48,7 +55,7 @@ export default function FileBrowserPage() {
   useEffect(() => { fetchObjects() }, [fetchObjects])
 
   // Reset selection when navigating
-  useEffect(() => { setSelectedFile(null); setPreviewContent(null) }, [prefix])
+  useEffect(() => { setSelectedFile(null); setPreviewContent(null); setSelectedKeys(new Set()) }, [prefix])
 
   const handleDelete = async (key: string) => {
     if (!bucket) return
@@ -60,6 +67,26 @@ export default function FileBrowserPage() {
       fetchObjects()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete object')
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (!bucket || selectedKeys.size === 0) return
+    setBulkDeleting(true)
+    setError('')
+    try {
+      await bulkDeleteObjects(bucket, Array.from(selectedKeys))
+      setShowBulkDeleteModal(false)
+      setSelectedKeys(new Set())
+      if (selectedFile && selectedKeys.has(selectedFile.key)) {
+        setSelectedFile(null)
+        setPreviewContent(null)
+      }
+      fetchObjects()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Bulk delete failed')
+    } finally {
+      setBulkDeleting(false)
     }
   }
 
@@ -102,6 +129,30 @@ export default function FileBrowserPage() {
   // Pagination
   const totalPages = Math.ceil(sortedObjects.length / PAGE_SIZE)
   const pagedObjects = sortedObjects.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  // Select all logic (files only, not folders)
+  const selectableFiles = sortedObjects.filter(o => !o.isPrefix)
+  const allSelected = selectableFiles.length > 0 && selectableFiles.every(o => selectedKeys.has(o.key))
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedKeys(new Set())
+    } else {
+      setSelectedKeys(new Set(selectableFiles.map(o => o.key)))
+    }
+  }
+
+  const toggleSelect = (key: string) => {
+    setSelectedKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
 
   // Preview logic
   const handleSelectFile = async (obj: ObjectItem) => {
@@ -201,6 +252,33 @@ export default function FileBrowserPage() {
           <UploadDropzone bucket={bucket} prefix={prefix} onUploaded={() => fetchObjects()} />
         </div>
 
+        {/* Bulk action bar */}
+        {selectedKeys.size > 0 && (
+          <div className="mb-4 flex items-center gap-3 px-4 py-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+            <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+              {selectedKeys.size} selected
+            </span>
+            <button
+              onClick={() => setShowBulkDeleteModal(true)}
+              className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors"
+            >
+              Delete Selected
+            </button>
+            <a
+              href={getDownloadZipUrl(bucket, Array.from(selectedKeys))}
+              className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-colors"
+            >
+              Download Zip
+            </a>
+            <button
+              onClick={() => setSelectedKeys(new Set())}
+              className="ml-auto text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm">
             {error}
@@ -233,6 +311,34 @@ export default function FileBrowserPage() {
           </div>
         )}
 
+        {/* Bulk delete confirmation modal */}
+        {showBulkDeleteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 p-6 w-full max-w-sm mx-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Bulk Delete</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Are you sure you want to delete <strong>{selectedKeys.size}</strong> object{selectedKeys.size !== 1 ? 's' : ''}?
+              </p>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setShowBulkDeleteModal(false)}
+                  disabled={bulkDeleting}
+                  className="px-4 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={bulkDeleting}
+                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  {bulkDeleting ? 'Deleting...' : `Delete ${selectedKeys.size} objects`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
@@ -251,6 +357,14 @@ export default function FileBrowserPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <th className="w-10 px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleSelectAll}
+                        className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                      />
+                    </th>
                     <SortHeader field="name" label="Name" />
                     <SortHeader field="size" label="Size" />
                     <SortHeader field="type" label="Type" />
@@ -264,9 +378,19 @@ export default function FileBrowserPage() {
                       key={obj.key}
                       className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer ${
                         selectedFile?.key === obj.key ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''
-                      }`}
+                      } ${selectedKeys.has(obj.key) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}`}
                       onClick={() => obj.isPrefix ? navigatePrefix(obj.key) : handleSelectFile(obj)}
                     >
+                      <td className="w-10 px-3 py-3" onClick={e => e.stopPropagation()}>
+                        {!obj.isPrefix && (
+                          <input
+                            type="checkbox"
+                            checked={selectedKeys.has(obj.key)}
+                            onChange={() => toggleSelect(obj.key)}
+                            className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                          />
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         {obj.isPrefix ? (
                           <span className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-medium">
@@ -292,6 +416,7 @@ export default function FileBrowserPage() {
                       <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                         {!obj.isPrefix && (
                           <div className="flex items-center justify-end gap-2">
+                            <CopyButton text={`s3://${bucket}/${obj.key}`} />
                             <a
                               href={getDownloadUrl(bucket, obj.key)}
                               className="text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
@@ -361,7 +486,20 @@ export default function FileBrowserPage() {
 
             {/* Metadata */}
             <div className="space-y-2 text-xs mb-4">
-              <MetaRow label="Key" value={selectedFile.key} />
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 dark:text-gray-400">Key</span>
+                <span className="flex items-center gap-1">
+                  <span className="text-gray-900 dark:text-white font-mono truncate max-w-[150px]" title={selectedFile.key}>{selectedFile.key}</span>
+                  <CopyButton text={selectedFile.key} />
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 dark:text-gray-400">S3 URI</span>
+                <span className="flex items-center gap-1">
+                  <span className="text-gray-900 dark:text-white font-mono truncate max-w-[150px]" title={`s3://${bucket}/${selectedFile.key}`}>s3://{bucket}/...</span>
+                  <CopyButton text={`s3://${bucket}/${selectedFile.key}`} />
+                </span>
+              </div>
               <MetaRow label="Size" value={formatSize(selectedFile.size)} />
               <MetaRow label="Type" value={selectedFile.contentType || '-'} />
               <MetaRow label="Modified" value={selectedFile.lastModified ? new Date(selectedFile.lastModified).toLocaleString() : '-'} />

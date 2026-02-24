@@ -7,6 +7,70 @@ interface Props {
   onUploaded: (results: UploadResult[]) => void
 }
 
+// Recursively read all files from a dropped directory entry.
+async function readDirectoryEntries(entry: FileSystemDirectoryEntry): Promise<File[]> {
+  const reader = entry.createReader()
+  const files: File[] = []
+
+  const readBatch = (): Promise<FileSystemEntry[]> =>
+    new Promise((resolve, reject) => reader.readEntries(resolve, reject))
+
+  let batch = await readBatch()
+  while (batch.length > 0) {
+    for (const child of batch) {
+      if (child.isFile) {
+        const file = await new Promise<File>((resolve, reject) =>
+          (child as FileSystemFileEntry).file(resolve, reject)
+        )
+        // Preserve relative path from the dropped folder
+        const relativePath = child.fullPath.replace(/^\//, '')
+        Object.defineProperty(file, 'webkitRelativePath', { value: relativePath })
+        files.push(file)
+      } else if (child.isDirectory) {
+        const subFiles = await readDirectoryEntries(child as FileSystemDirectoryEntry)
+        files.push(...subFiles)
+      }
+    }
+    batch = await readBatch()
+  }
+  return files
+}
+
+// Collect all files from a DataTransfer, including folder contents.
+async function collectFiles(dataTransfer: DataTransfer): Promise<{ files: File[]; hasFolder: boolean }> {
+  const items = dataTransfer.items
+  let hasFolder = false
+
+  // Try webkitGetAsEntry for folder support
+  if (items && items.length > 0 && typeof items[0].webkitGetAsEntry === 'function') {
+    const allFiles: File[] = []
+    const entries: FileSystemEntry[] = []
+
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry()
+      if (entry) entries.push(entry)
+    }
+
+    for (const entry of entries) {
+      if (entry.isDirectory) {
+        hasFolder = true
+        const dirFiles = await readDirectoryEntries(entry as FileSystemDirectoryEntry)
+        allFiles.push(...dirFiles)
+      } else if (entry.isFile) {
+        const file = await new Promise<File>((resolve, reject) =>
+          (entry as FileSystemFileEntry).file(resolve, reject)
+        )
+        allFiles.push(file)
+      }
+    }
+
+    if (allFiles.length > 0) return { files: allFiles, hasFolder }
+  }
+
+  // Fallback: plain file list
+  return { files: Array.from(dataTransfer.files), hasFolder: false }
+}
+
 export default function UploadDropzone({ bucket, prefix, onUploaded }: Props) {
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -14,14 +78,45 @@ export default function UploadDropzone({ bucket, prefix, onUploaded }: Props) {
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const doUpload = useCallback(async (files: File[]) => {
+  const doUpload = useCallback(async (files: File[], preservePaths: boolean) => {
     if (files.length === 0) return
     setUploading(true)
     setProgress(0)
     setError('')
     try {
-      const results = await uploadFiles(bucket, files, prefix, setProgress)
-      onUploaded(results)
+      if (preservePaths) {
+        // Upload files with their relative paths as key prefixes
+        const formData = new FormData()
+        for (const file of files) {
+          const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+          // Append with the relative path as the filename
+          formData.append('file', new File([file], relPath, { type: file.type }))
+        }
+
+        const token = localStorage.getItem('vaults3_token')
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', `/api/v1/buckets/${bucket}/upload?prefix=${encodeURIComponent(prefix)}`)
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+
+        const results = await new Promise<UploadResult[]>((resolve, reject) => {
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
+          }
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(JSON.parse(xhr.responseText))
+            } else {
+              reject(new Error(`Upload failed: ${xhr.statusText}`))
+            }
+          }
+          xhr.onerror = () => reject(new Error('Upload failed'))
+          xhr.send(formData)
+        })
+        onUploaded(results)
+      } else {
+        const results = await uploadFiles(bucket, files, prefix, setProgress)
+        onUploaded(results)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
@@ -30,16 +125,16 @@ export default function UploadDropzone({ bucket, prefix, onUploaded }: Props) {
     }
   }, [bucket, prefix, onUploaded])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
     setDragging(false)
-    const files = Array.from(e.dataTransfer.files)
-    doUpload(files)
+    const { files, hasFolder } = await collectFiles(e.dataTransfer)
+    doUpload(files, hasFolder)
   }, [doUpload])
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
-    doUpload(files)
+    doUpload(files, false)
     e.target.value = ''
   }, [doUpload])
 
@@ -70,7 +165,7 @@ export default function UploadDropzone({ bucket, prefix, onUploaded }: Props) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
           </svg>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Drag & drop files here or{' '}
+            Drag & drop files or folders here or{' '}
             <button
               onClick={() => inputRef.current?.click()}
               className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"

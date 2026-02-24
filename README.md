@@ -27,7 +27,7 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Per-bucket Prometheus metrics** — Request counts, bytes in/out, and errors with bucket labels at `/metrics`
 - **Prometheus metrics** — `/metrics` endpoint with storage, request, and runtime stats
 - **Presigned URLs** — Pre-authenticated URL generation
-- **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, file browser (sortable columns, pagination, file preview, metadata panel), access key management, activity log, storage stats, IAM management, audit trail viewer (sortable, paginated), search (sortable, paginated), notifications, replication status, lambda triggers, backup management, bucket config (versioning toggle, lifecycle editor, CORS editor), dark/light theme, responsive layout
+- **Web dashboard** — Built-in React UI at `/dashboard/` with JWT auth, file browser (sortable columns, pagination, file preview, metadata panel, multi-select, bulk delete, bulk zip download), drag-and-drop file and folder upload, copy-to-clipboard buttons, access key management, activity log, storage stats with auto-refresh, IAM management, audit trail viewer (sortable, paginated), search (sortable, paginated), notifications, replication status, lambda triggers, backup management, bucket config (versioning toggle, lifecycle editor, CORS editor), dark/light theme, responsive layout
 - **Health checks** — `/health` (liveness) and `/ready` (readiness) endpoints for load balancers and Kubernetes
 - **Graceful shutdown** — Drains in-flight requests on SIGTERM/SIGINT with configurable timeout
 - **TLS support** — Optional HTTPS with configurable cert/key paths
@@ -140,6 +140,8 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Bucket Versioning (Dashboard) | `GET/PUT /api/v1/buckets/{name}/versioning` | Done |
 | Bucket Lifecycle (Dashboard) | `GET/PUT/DELETE /api/v1/buckets/{name}/lifecycle` | Done |
 | Bucket CORS (Dashboard) | `GET/PUT/DELETE /api/v1/buckets/{name}/cors` | Done |
+| Bulk Delete (Dashboard) | `POST /api/v1/buckets/{name}/bulk-delete` | Done |
+| Bulk Download Zip | `GET /api/v1/buckets/{name}/download-zip?keys=...` | Done |
 
 ## Quick Start
 
@@ -240,7 +242,7 @@ The built-in dashboard is available at `http://localhost:9000/dashboard/`. Login
 
 - Bucket browser — list, create, delete buckets
 - Bucket detail — view/edit policies and quotas
-- File browser — list, upload (drag & drop), download, delete objects with folder navigation
+- File browser — list, upload (drag & drop files and folders), download, delete objects with folder navigation, multi-select with bulk delete and bulk zip download, copy-to-clipboard for S3 URIs and keys
 - Access key management — create, list, revoke S3 API keys
 - IAM management — users, groups, policies CRUD with attach/detach operations
 - Audit trail — filter by user, bucket, time range with auto-refresh
@@ -250,7 +252,7 @@ The built-in dashboard is available at `http://localhost:9000/dashboard/`. Login
 - Lambda triggers — status overview, trigger table with event filtering
 - Backups — status cards, history table, manual trigger button
 - Activity log — real-time S3 operation feed with auto-refresh
-- Storage stats — total storage, per-bucket breakdown, runtime metrics
+- Storage stats — total storage, per-bucket breakdown, runtime metrics, auto-refresh toggle (30s)
 - Dark/light theme — toggle with system preference detection
 - Responsive layout — mobile-friendly with collapsible sidebar
 - JWT-based authentication (24h tokens)
@@ -1049,3 +1051,8 @@ VaultS3/
 - [x] GitHub Actions CI: build, test, lint, coverage on push/PR
 - [x] pprof debug endpoint: `/debug/pprof/*` behind `debug: true` config flag
 - [x] Extended stats API with request metrics (total requests, errors, bytes in/out, requests by method)
+- [x] Dashboard bulk operations: multi-select with bulk delete and bulk zip download
+- [x] Dashboard drag-and-drop folder upload (recursive directory reading via webkitGetAsEntry)
+- [x] Dashboard auto-refresh toggle on stats page (30s interval, localStorage persistence)
+- [x] Dashboard copy-to-clipboard buttons for S3 URIs, object keys, and access keys
+- [x] Dashboard API: bulk-delete and download-zip endpoints

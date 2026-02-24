@@ -1,24 +1,50 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { getStats, type Stats } from '../api/stats'
 import { getActivity, type ActivityEntry } from '../api/activity'
 import BarChart from '../components/BarChart'
 import DonutChart from '../components/DonutChart'
 import Sparkline from '../components/Sparkline'
 
+const REFRESH_KEY = 'vaults3_stats_autorefresh'
+const REFRESH_INTERVAL = 30000 // 30s
+
 export default function StatsPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [activity, setActivity] = useState<ActivityEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [autoRefresh, setAutoRefresh] = useState(() => localStorage.getItem(REFRESH_KEY) !== 'false')
 
-  useEffect(() => {
-    Promise.all([getStats(), getActivity(100)])
-      .then(([s, a]) => { setStats(s); setActivity(a || []) })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load stats'))
-      .finally(() => setLoading(false))
+  const fetchData = useCallback(async () => {
+    try {
+      const [s, a] = await Promise.all([getStats(), getActivity(100)])
+      setStats(s)
+      setActivity(a || [])
+      setError('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load stats')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
-  // Build sparkline data: group activity entries into time buckets (last 100 entries → 20 buckets of 5)
+  useEffect(() => { fetchData() }, [fetchData])
+
+  useEffect(() => {
+    if (!autoRefresh) return
+    const interval = setInterval(fetchData, REFRESH_INTERVAL)
+    return () => clearInterval(interval)
+  }, [autoRefresh, fetchData])
+
+  const toggleAutoRefresh = () => {
+    setAutoRefresh(prev => {
+      const next = !prev
+      localStorage.setItem(REFRESH_KEY, String(next))
+      return next
+    })
+  }
+
+  // Build sparkline data: group activity entries into time buckets (last 100 entries -> 20 buckets of 5)
   const sparklineData = useMemo(() => {
     if (activity.length < 2) return []
     const bucketCount = 20
@@ -49,7 +75,25 @@ export default function StatsPage() {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">Storage Stats</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Storage Stats</h2>
+        <button
+          onClick={toggleAutoRefresh}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            autoRefresh
+              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+              : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+          }`}
+        >
+          {autoRefresh && (
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+            </span>
+          )}
+          Auto-refresh {autoRefresh ? 'ON' : 'OFF'}
+        </button>
+      </div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -89,7 +133,7 @@ export default function StatsPage() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        {/* Donut chart — request method distribution */}
+        {/* Donut chart -- request method distribution */}
         {stats.requestsByMethod && stats.requestsByMethod.length > 0 && (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Requests by Method</h3>
@@ -102,7 +146,7 @@ export default function StatsPage() {
           </div>
         )}
 
-        {/* Bar chart — per-bucket sizes */}
+        {/* Bar chart -- per-bucket sizes */}
         {stats.buckets.length > 0 && (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Bucket Sizes</h3>

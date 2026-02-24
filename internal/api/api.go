@@ -345,6 +345,18 @@ func (h *APIHandler) routeBucket(w http.ResponseWriter, r *http.Request, rest st
 		} else {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
+	case "bulk-delete":
+		if r.Method == http.MethodPost {
+			h.handleBulkDelete(w, r, name)
+		} else {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	case "download-zip":
+		if r.Method == http.MethodGet {
+			h.handleDownloadZip(w, r, name)
+		} else {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
 	case "versioning":
 		switch r.Method {
 		case http.MethodGet:

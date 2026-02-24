@@ -20,6 +20,12 @@ export interface UploadResult {
   contentType: string
 }
 
+export interface BulkDeleteResult {
+  key: string
+  deleted: boolean
+  error?: string
+}
+
 export function listObjects(bucket: string, prefix = '', maxKeys = 200, startAfter = ''): Promise<ObjectListResponse> {
   const params = new URLSearchParams()
   if (prefix) params.set('prefix', prefix)
@@ -33,9 +39,22 @@ export function deleteObject(bucket: string, key: string): Promise<void> {
   return apiFetch<void>(`/buckets/${bucket}/objects/${key}`, { method: 'DELETE' })
 }
 
+export function bulkDeleteObjects(bucket: string, keys: string[]): Promise<BulkDeleteResult[]> {
+  return apiFetch<BulkDeleteResult[]>(`/buckets/${bucket}/bulk-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keys }),
+  })
+}
+
 export function getDownloadUrl(bucket: string, key: string): string {
   const token = localStorage.getItem('vaults3_token')
   return `/api/v1/buckets/${bucket}/download/${key}?token=${token}`
+}
+
+export function getDownloadZipUrl(bucket: string, keys: string[]): string {
+  const token = localStorage.getItem('vaults3_token')
+  return `/api/v1/buckets/${bucket}/download-zip?keys=${encodeURIComponent(keys.join(','))}&token=${token}`
 }
 
 export function uploadFiles(

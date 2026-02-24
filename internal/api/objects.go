@@ -1,6 +1,8 @@
 package api
 
 import (
+	"archive/zip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -199,4 +201,89 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 	}
 
 	writeJSON(w, http.StatusOK, results)
+}
+
+// handleBulkDelete deletes multiple objects at once.
+func (h *APIHandler) handleBulkDelete(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeError(w, http.StatusNotFound, "bucket not found")
+		return
+	}
+
+	var req struct {
+		Keys []string `json:"keys"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Keys) == 0 {
+		writeError(w, http.StatusBadRequest, "no keys provided")
+		return
+	}
+	if len(req.Keys) > 1000 {
+		writeError(w, http.StatusBadRequest, "max 1000 keys per request")
+		return
+	}
+
+	type deleteResult struct {
+		Key     string `json:"key"`
+		Deleted bool   `json:"deleted"`
+		Error   string `json:"error,omitempty"`
+	}
+	var results []deleteResult
+
+	for _, key := range req.Keys {
+		if !h.engine.ObjectExists(bucket, key) {
+			results = append(results, deleteResult{Key: key, Error: "not found"})
+			continue
+		}
+		if err := h.engine.DeleteObject(bucket, key); err != nil {
+			results = append(results, deleteResult{Key: key, Error: err.Error()})
+			continue
+		}
+		h.store.DeleteObjectMeta(bucket, key)
+		results = append(results, deleteResult{Key: key, Deleted: true})
+	}
+
+	writeJSON(w, http.StatusOK, results)
+}
+
+// handleDownloadZip streams multiple objects as a zip archive.
+func (h *APIHandler) handleDownloadZip(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeError(w, http.StatusNotFound, "bucket not found")
+		return
+	}
+
+	keysParam := r.URL.Query().Get("keys")
+	if keysParam == "" {
+		writeError(w, http.StatusBadRequest, "no keys provided")
+		return
+	}
+	keys := strings.Split(keysParam, ",")
+	if len(keys) > 1000 {
+		writeError(w, http.StatusBadRequest, "max 1000 keys per request")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-files.zip"`, bucket))
+
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+
+	for _, key := range keys {
+		reader, _, err := h.engine.GetObject(bucket, key)
+		if err != nil {
+			continue
+		}
+		fw, err := zw.Create(key)
+		if err != nil {
+			reader.Close()
+			continue
+		}
+		io.Copy(fw, reader)
+		reader.Close()
+	}
 }
