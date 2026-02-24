@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { listBackups, getBackupStatus, triggerBackup, type BackupRecord, type BackupStatus } from '../api/backup'
 import { useToast } from '../hooks/useToast'
 
@@ -12,15 +12,41 @@ function formatSize(bytes: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
+function SortHeader({ field, label, sortField, sortDir, onSort }: {
+  field: BSortField; label: string; sortField: BSortField; sortDir: BSortDir; onSort: (f: BSortField) => void
+}) {
+  return (
+    <th
+      onClick={() => onSort(field)}
+      className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortField === field && (
+          <span className="text-indigo-600 dark:text-indigo-400">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+        )}
+      </span>
+    </th>
+  )
+}
+
+function StatusCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className={`text-2xl font-bold mt-1 ${color || 'text-gray-900 dark:text-white'}`}>{value}</p>
+    </div>
+  )
+}
+
 export default function BackupPage() {
   const [backups, setBackups] = useState<BackupRecord[]>([])
   const [status, setStatus] = useState<BackupStatus | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [triggering, setTriggering] = useState(false)
   const { addToast } = useToast()
-  const [bSortField, setBSortField] = useState<BSortField>('startTime')
-  const [bSortDir, setBSortDir] = useState<BSortDir>('desc')
+  const [sortField, setSortField] = useState<BSortField>('startTime')
+  const [sortDir, setSortDir] = useState<BSortDir>('desc')
 
   const fetchData = useCallback(async () => {
     try {
@@ -31,7 +57,7 @@ export default function BackupPage() {
     }
     try {
       const b = await listBackups()
-      setBackups(b || [])
+      setBackups(Array.isArray(b) ? b : [])
     } catch {
       setBackups([])
     }
@@ -42,7 +68,6 @@ export default function BackupPage() {
 
   const handleTrigger = async () => {
     setTriggering(true)
-    setError('')
     try {
       await triggerBackup()
       addToast('success', 'Backup triggered')
@@ -54,6 +79,15 @@ export default function BackupPage() {
     }
   }
 
+  const handleSort = (field: BSortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -62,45 +96,18 @@ export default function BackupPage() {
     )
   }
 
-  const handleBSort = (field: BSortField) => {
-    if (bSortField === field) {
-      setBSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setBSortField(field)
-      setBSortDir('asc')
+  const sorted = [...backups].sort((a, b) => {
+    let cmp = 0
+    switch (sortField) {
+      case 'type': cmp = (a.type || '').localeCompare(b.type || ''); break
+      case 'target': cmp = (a.target || '').localeCompare(b.target || ''); break
+      case 'startTime': cmp = (a.startTime || '').localeCompare(b.startTime || ''); break
+      case 'objects': cmp = (a.objects || 0) - (b.objects || 0); break
+      case 'size': cmp = (a.size || 0) - (b.size || 0); break
+      case 'status': cmp = (a.status || '').localeCompare(b.status || ''); break
     }
-  }
-
-  const sortedBackups = useMemo(() => {
-    const s = [...backups]
-    s.sort((a, b) => {
-      let cmp = 0
-      switch (bSortField) {
-        case 'type': cmp = a.type.localeCompare(b.type); break
-        case 'target': cmp = a.target.localeCompare(b.target); break
-        case 'startTime': cmp = (a.startTime || '').localeCompare(b.startTime || ''); break
-        case 'objects': cmp = a.objects - b.objects; break
-        case 'size': cmp = a.size - b.size; break
-        case 'status': cmp = a.status.localeCompare(b.status); break
-      }
-      return bSortDir === 'asc' ? cmp : -cmp
-    })
-    return s
-  }, [backups, bSortField, bSortDir])
-
-  const BSortHeader = ({ field, label }: { field: BSortField; label: string }) => (
-    <th
-      onClick={() => handleBSort(field)}
-      className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
-    >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        {bSortField === field && (
-          <span className="text-indigo-600 dark:text-indigo-400">{bSortDir === 'asc' ? '\u2191' : '\u2193'}</span>
-        )}
-      </span>
-    </th>
-  )
+    return sortDir === 'asc' ? cmp : -cmp
+  })
 
   const statusColor = (s: string) => {
     switch (s) {
@@ -124,12 +131,6 @@ export default function BackupPage() {
         </button>
       </div>
 
-      {error && (
-        <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm">
-          {error}
-        </div>
-      )}
-
       {status && !status.enabled && (
         <div className="mb-6 p-5 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
           <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-300 mb-2">Backups Not Enabled</h3>
@@ -150,16 +151,20 @@ export default function BackupPage() {
 
       {/* Status cards */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        {[
-          { label: 'Status', value: status?.enabled ? 'Enabled' : 'Disabled', color: status?.enabled ? 'text-green-600 dark:text-green-400' : 'text-gray-500' },
-          { label: 'Running', value: status?.running ? 'Yes' : 'No', color: status?.running ? 'text-amber-600 dark:text-amber-400' : '' },
-          { label: 'Targets', value: status?.targets ?? 0 },
-        ].map(card => (
-          <div key={card.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-            <p className="text-xs text-gray-500 dark:text-gray-400">{card.label}</p>
-            <p className={`text-2xl font-bold mt-1 ${card.color || 'text-gray-900 dark:text-white'}`}>{card.value}</p>
-          </div>
-        ))}
+        <StatusCard
+          label="Status"
+          value={status?.enabled ? 'Enabled' : 'Disabled'}
+          color={status?.enabled ? 'text-green-600 dark:text-green-400' : 'text-gray-500'}
+        />
+        <StatusCard
+          label="Running"
+          value={status?.running ? 'Yes' : 'No'}
+          color={status?.running ? 'text-amber-600 dark:text-amber-400' : undefined}
+        />
+        <StatusCard
+          label="Targets"
+          value={String(status?.targets ?? 0)}
+        />
       </div>
 
       {/* Backup history table */}
@@ -169,19 +174,19 @@ export default function BackupPage() {
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700">
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">ID</th>
-                <BSortHeader field="type" label="Type" />
-                <BSortHeader field="target" label="Target" />
-                <BSortHeader field="startTime" label="Started" />
+                <SortHeader field="type" label="Type" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader field="target" label="Target" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader field="startTime" label="Started" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ended</th>
-                <BSortHeader field="objects" label="Objects" />
-                <BSortHeader field="size" label="Size" />
-                <BSortHeader field="status" label="Status" />
+                <SortHeader field="objects" label="Objects" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader field="size" label="Size" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader field="status" label="Status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
-              {sortedBackups.map(b => (
+              {sorted.map(b => (
                 <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-900 dark:text-white">{b.id.slice(0, 8)}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-gray-900 dark:text-white">{(b.id || '').slice(0, 8)}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{b.type}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{b.target}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">
