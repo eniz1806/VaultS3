@@ -126,6 +126,24 @@ export default function BackupPage() {
         </div>
       )}
 
+      {status && !status.enabled && (
+        <div className="mb-6 p-5 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+          <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-300 mb-2">Backups Not Enabled</h3>
+          <p className="text-sm text-indigo-700 dark:text-indigo-400 mb-3">
+            Schedule automatic full or incremental backups to local directories.
+            Enable them in your <code className="px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/40 font-mono text-xs">vaults3.yaml</code> config:
+          </p>
+          <pre className="text-xs font-mono bg-gray-900 text-green-400 p-3 rounded-lg overflow-x-auto">{`backup:
+  enabled: true
+  targets:
+    - name: "local-backup"
+      type: "local"
+      path: "/backups/vaults3"
+  schedule_cron: "0 2 * * *"
+  retention_days: 30`}</pre>
+        </div>
+      )}
+
       {/* Status cards */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[

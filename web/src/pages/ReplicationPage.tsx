@@ -101,6 +101,23 @@ export default function ReplicationPage() {
         </span>
       </div>
 
+      {status && !status.enabled && (
+        <div className="mb-6 p-5 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+          <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-300 mb-2">Replication Not Enabled</h3>
+          <p className="text-sm text-indigo-700 dark:text-indigo-400 mb-3">
+            Async replication mirrors objects to peer VaultS3 instances automatically.
+            Enable it in your <code className="px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/40 font-mono text-xs">vaults3.yaml</code> config:
+          </p>
+          <pre className="text-xs font-mono bg-gray-900 text-green-400 p-3 rounded-lg overflow-x-auto">{`replication:
+  enabled: true
+  peers:
+    - name: "dc2"
+      url: "http://peer-vaults3:9000"
+      access_key: "peer-admin"
+      secret_key: "peer-secret"`}</pre>
+        </div>
+      )}
+
       {/* Peer cards */}
       {(status?.peers || []).length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">

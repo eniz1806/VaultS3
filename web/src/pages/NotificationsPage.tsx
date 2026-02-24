@@ -83,9 +83,21 @@ export default function NotificationsPage() {
       )}
 
       {configs.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">
-          <p className="text-gray-400">No notification configurations</p>
-          <p className="text-xs text-gray-400 mt-1">Configure webhooks via bucket notification settings or the S3 API</p>
+        <div className="mb-6 p-5 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+          <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-300 mb-2">No Notifications Configured</h3>
+          <p className="text-sm text-indigo-700 dark:text-indigo-400 mb-3">
+            Send webhook notifications when objects are created or deleted. Configure per-bucket via the S3 API
+            or enable global backends in your <code className="px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/40 font-mono text-xs">vaults3.yaml</code> config:
+          </p>
+          <pre className="text-xs font-mono bg-gray-900 text-green-400 p-3 rounded-lg overflow-x-auto">{`notifications:
+  max_workers: 4
+  queue_size: 256
+  timeout_secs: 10
+  # Optional global backends:
+  # kafka:
+  #   enabled: true
+  #   brokers: ["localhost:9092"]
+  #   topic: "vaults3-events"`}</pre>
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
