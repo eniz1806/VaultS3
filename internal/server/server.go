@@ -385,6 +385,9 @@ func (s *Server) Run() error {
 		"access_key", s.cfg.Auth.AdminAccessKey,
 		"dashboard", fmt.Sprintf("%s://%s/dashboard/", scheme, addr),
 	)
+	if s.cfg.Auth.AdminAccessKey == "vaults3-admin" || s.cfg.Auth.AdminSecretKey == "vaults3-secret-change-me" {
+		slog.Warn("Using default admin credentials. Set VAULTS3_ACCESS_KEY and VAULTS3_SECRET_KEY environment variables.")
+	}
 	if s.cfg.Encryption.Enabled {
 		slog.Info("encryption enabled", "algorithm", "AES-256-GCM")
 	}
