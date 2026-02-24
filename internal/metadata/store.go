@@ -1065,7 +1065,7 @@ func (s *Store) GetLifecycleRule(bucket string) (*LifecycleRule, error) {
 		b := tx.Bucket(lifecycleBucket)
 		data := b.Get([]byte(bucket))
 		if data == nil {
-			return fmt.Errorf("no lifecycle rule for bucket: %s", bucket)
+			return nil
 		}
 		rule = &LifecycleRule{}
 		return json.Unmarshal(data, rule)
