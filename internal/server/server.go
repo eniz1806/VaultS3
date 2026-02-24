@@ -340,7 +340,7 @@ func (s *Server) Run() error {
 	mux.HandleFunc("/health", healthHandler(s.metrics.StartTime()))
 	mux.HandleFunc("/ready", readyHandler(s.store))
 	mux.Handle("/api/v1/", apiHandler)
-	mux.Handle("/dashboard/", dashboard.Handler())
+	mux.Handle("/dashboard/", middleware.SecurityHeaders(dashboard.Handler()))
 	mux.Handle("/metrics", s.metrics)
 
 	// Register pprof endpoints when debug mode is enabled

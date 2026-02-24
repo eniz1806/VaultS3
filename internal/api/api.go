@@ -1,7 +1,9 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/eniz1806/VaultS3/internal/backup"
@@ -55,14 +57,28 @@ func (h *APIHandler) SetOIDCValidator(v *OIDCValidator) {
 }
 
 func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// CORS headers for dev mode (Vite proxy)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	// CORS: allow same-origin and configured origins only
+	origin := r.Header.Get("Origin")
+	if origin != "" && h.isAllowedOrigin(origin, r) {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Max-Age", "3600")
+		w.Header().Set("Vary", "Origin")
+	}
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
+	}
+
+	// Rate limit check (before auth to protect against brute force)
+	if h.rateLimiter != nil {
+		clientIP := strings.SplitN(r.RemoteAddr, ":", 2)[0]
+		if !h.rateLimiter.Allow(clientIP, "") {
+			writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+			return
+		}
 	}
 
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1")
@@ -395,4 +411,29 @@ func (h *APIHandler) routeBucket(w http.ResponseWriter, r *http.Request, rest st
 	default:
 		writeError(w, http.StatusNotFound, "not found")
 	}
+}
+
+// isAllowedOrigin checks if the request origin matches the server's own address.
+func (h *APIHandler) isAllowedOrigin(origin string, r *http.Request) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	// Allow same-host origins (dashboard served from same server)
+	host := r.Host
+	if host == "" {
+		host = fmt.Sprintf("%s:%d", h.cfg.Server.Address, h.cfg.Server.Port)
+	}
+	originHost := parsed.Hostname()
+	if parsed.Port() != "" {
+		originHost = parsed.Hostname() + ":" + parsed.Port()
+	}
+	if originHost == host {
+		return true
+	}
+	// Allow localhost variants for development
+	if parsed.Hostname() == "localhost" || parsed.Hostname() == "127.0.0.1" {
+		return true
+	}
+	return false
 }

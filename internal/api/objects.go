@@ -167,6 +167,11 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 
 			key := prefix + fh.Filename
 
+			if err := validateObjectKey(key); err != nil {
+				file.Close()
+				continue
+			}
+
 			written, etag, err := h.engine.PutObject(bucket, key, file, fh.Size)
 			file.Close()
 			if err != nil {

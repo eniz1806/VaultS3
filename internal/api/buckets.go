@@ -69,6 +69,10 @@ func (h *APIHandler) handleCreateBucket(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "bucket name is required")
 		return
 	}
+	if err := validateBucketName(req.Name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if h.store.BucketExists(req.Name) {
 		writeError(w, http.StatusConflict, "bucket already exists")

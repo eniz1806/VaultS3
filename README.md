@@ -61,6 +61,10 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Request ID middleware** — Every response includes an `X-Request-Id` header for request tracing
 - **Panic recovery middleware** — Catches panics, logs full stack trace, returns 500 without crashing the server
 - **Request latency histogram** — `vaults3_request_duration_seconds_bucket` Prometheus histogram with 11 bucket boundaries (5ms to 10s)
+- **Security headers** — CSP, X-Frame-Options (DENY), X-Content-Type-Options (nosniff), HSTS (1 year), Referrer-Policy on all dashboard responses
+- **CORS origin validation** — Dashboard API restricts Access-Control-Allow-Origin to same-origin and localhost (replaces wildcard `*`)
+- **Dashboard API rate limiting** — Uses existing token bucket rate limiter on `/api/v1/` endpoints, returns 429 when exceeded
+- **Input validation** — DNS-compatible bucket name validation (3-63 chars, lowercase, no leading/trailing hyphen) and object key validation (max 1024 chars, no null bytes)
 - **RAM optimization** — Slim search index with LRU eviction cap (50K entries default), batched last-access updates (30s flush interval), configurable Go memory limit (`GOMEMLIMIT`)
 - **GetObjectAttributes** — Returns object size, ETag, and storage class; used internally by AWS SDK v2
 - **Bucket encryption config** — Per-bucket server-side encryption configuration (AES256, aws:kms) via `PUT/GET/DELETE /{bucket}?encryption`
@@ -957,7 +961,7 @@ VaultS3/
 │   ├── backup/                — Backup scheduler with local targets
 │   ├── versioning/            — Version diff (LCS), tagging, rollback
 │   ├── fuse/                  — FUSE filesystem mount (go-fuse/v2)
-│   ├── middleware/             — HTTP middleware (request ID, panic recovery, latency)
+│   ├── middleware/             — HTTP middleware (request ID, panic recovery, latency, security headers)
 │   ├── api/                   — Dashboard REST API (JWT auth, IAM, STS, audit)
 │   └── dashboard/             — Embedded React SPA
 ├── web/                       — React dashboard source (Vite + Tailwind)
@@ -1061,3 +1065,7 @@ VaultS3/
 - [x] Settings page: read-only server configuration viewer (`GET /api/v1/settings`, secrets stripped)
 - [x] Keyboard shortcuts: `/` go to search, `?` shortcut help overlay, `Esc` close modal/blur
 - [x] Breadcrumb navigation in file browser with home icon, chevron separators, clickable path segments
+- [x] Security headers middleware (CSP, X-Frame-Options, X-Content-Type-Options, HSTS, Referrer-Policy)
+- [x] CORS origin validation (same-origin + localhost, replaces wildcard)
+- [x] Dashboard API rate limiting (429 Too Many Requests)
+- [x] Input validation (DNS-compatible bucket names, object key constraints)

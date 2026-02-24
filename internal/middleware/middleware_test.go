@@ -111,6 +111,50 @@ func TestPanicRecovery_CatchesPanic(t *testing.T) {
 	}
 }
 
+func TestSecurityHeaders_SetsAllHeaders(t *testing.T) {
+	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/", nil)
+	handler.ServeHTTP(rr, req)
+
+	expected := map[string]string{
+		"Content-Security-Policy":   "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+		"X-Frame-Options":           "DENY",
+		"X-Content-Type-Options":    "nosniff",
+		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+		"Referrer-Policy":           "strict-origin-when-cross-origin",
+	}
+
+	for header, want := range expected {
+		got := rr.Header().Get(header)
+		if got != want {
+			t.Errorf("header %s = %q, want %q", header, got, want)
+		}
+	}
+}
+
+func TestSecurityHeaders_PassesThrough(t *testing.T) {
+	called := false
+	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusCreated)
+	}))
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/", nil)
+	handler.ServeHTTP(rr, req)
+
+	if !called {
+		t.Error("inner handler was not called")
+	}
+	if rr.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d", rr.Code)
+	}
+}
+
 func TestMiddlewareChain(t *testing.T) {
 	rec := &mockRecorder{}
 	handler := PanicRecovery(RequestID(Latency(rec, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
