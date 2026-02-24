@@ -12,6 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/eniz1806/VaultS3/actions"><img src="https://github.com/eniz1806/VaultS3/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://hub.docker.com/r/eniz1806/vaults3"><img src="https://img.shields.io/docker/pulls/eniz1806/vaults3?logo=docker&logoColor=white&color=2496ED" alt="Docker Pulls"></a>
   <a href="https://github.com/eniz1806/VaultS3/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL_v3-4F46E5" alt="License"></a>
   <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
   <a href="https://github.com/eniz1806/VaultS3"><img src="https://img.shields.io/badge/S3_Operations-50+-10B981" alt="S3 Ops"></a>
@@ -337,9 +338,16 @@ server:
 ### Docker
 
 ```bash
+# From Docker Hub
+docker pull eniz1806/vaults3
+docker run -p 9000:9000 -v ./data:/data -v ./metadata:/metadata eniz1806/vaults3
+
+# Or build locally
 docker build -t vaults3 .
 docker run -p 9000:9000 -v ./data:/data -v ./metadata:/metadata vaults3
 ```
+
+Images are automatically published to [Docker Hub](https://hub.docker.com/r/eniz1806/vaults3) on every push to `main`.
 
 ### Object Versioning
 
