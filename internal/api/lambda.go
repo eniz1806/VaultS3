@@ -22,8 +22,8 @@ func (h *APIHandler) handleListLambdaTriggers(w http.ResponseWriter, r *http.Req
 	}
 	// Convert map to array for frontend
 	type bucketTriggers struct {
-		Bucket   string                    `json:"bucket"`
-		Triggers []metadata.LambdaTrigger  `json:"triggers"`
+		Bucket   string                   `json:"bucket"`
+		Triggers []metadata.LambdaTrigger `json:"triggers"`
 	}
 	result := make([]bucketTriggers, 0, len(configs))
 	for bucket, cfg := range configs {
