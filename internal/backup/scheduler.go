@@ -3,7 +3,7 @@ package backup
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -93,11 +93,10 @@ func (s *Scheduler) runBackup() {
 		if err != nil {
 			record.Status = "failed"
 			record.Error = err.Error()
-			log.Printf("backup: failed for target %s: %v", target.Name, err)
+			slog.Error("backup failed", "target", target.Name, "error", err)
 		} else {
 			record.Status = "completed"
-			log.Printf("backup: completed for target %s (%d objects, %d bytes)",
-				target.Name, record.ObjectCount, record.TotalSize)
+			slog.Info("backup completed", "target", target.Name, "objects", record.ObjectCount, "bytes", record.TotalSize)
 		}
 		s.store.PutBackupRecord(record)
 	}

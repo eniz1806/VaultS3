@@ -26,6 +26,7 @@ compression:
 logging:
   enabled: false
   file_path: "./access.log"
+  level: "info"  # debug, info, warn, error
 
 lifecycle:
   scan_interval_secs: 3600

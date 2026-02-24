@@ -181,6 +181,7 @@ type CompressionConfig struct {
 type LoggingConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 	FilePath string `yaml:"file_path"`
+	Level    string `yaml:"level"` // debug, info, warn, error (default: info)
 }
 
 type LifecycleConfig struct {

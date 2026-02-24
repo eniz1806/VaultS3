@@ -1,0 +1,67 @@
+package middleware
+
+import (
+	"fmt"
+	"log/slog"
+	"net/http"
+	"runtime/debug"
+	"sync/atomic"
+	"time"
+)
+
+// requestCounter is used to generate unique request IDs.
+var requestCounter uint64
+
+// generateRequestID creates a short unique ID: timestamp-counter.
+func generateRequestID() string {
+	n := atomic.AddUint64(&requestCounter, 1)
+	return fmt.Sprintf("%d-%06d", time.Now().UnixMilli()%1000000, n)
+}
+
+// RequestID adds an X-Request-Id header to every response.
+// If the incoming request already has one, it is reused.
+func RequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Request-Id")
+		if id == "" {
+			id = generateRequestID()
+		}
+		w.Header().Set("X-Request-Id", id)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// LatencyRecorder is the interface for recording request latency.
+type LatencyRecorder interface {
+	RecordLatency(d time.Duration)
+}
+
+// Latency measures request duration and records it via the LatencyRecorder.
+func Latency(recorder LatencyRecorder, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		recorder.RecordLatency(time.Since(start))
+	})
+}
+
+// PanicRecovery catches panics, logs the stack trace, and returns 500.
+func PanicRecovery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				stack := string(debug.Stack())
+				reqID := w.Header().Get("X-Request-Id")
+				slog.Error("panic recovered",
+					"request_id", reqID,
+					"method", r.Method,
+					"path", r.URL.Path,
+					"panic", rec,
+					"stack", stack,
+				)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}

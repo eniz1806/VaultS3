@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"path"
 	"strings"
@@ -147,7 +147,7 @@ func (m *TriggerManager) Dispatch(bucket, key, eventType string, size int64, eta
 		select {
 		case m.workerCh <- job:
 		default:
-			log.Printf("[Lambda] queue full, dropping trigger %s for %s/%s", trigger.ID, bucket, key)
+			slog.Warn("lambda queue full, dropping trigger", "trigger_id", trigger.ID, "bucket", bucket, "key", key)
 		}
 	}
 }
@@ -193,19 +193,19 @@ func (m *TriggerManager) executeTrigger(job triggerJob) {
 
 	payload, err := json.Marshal(lambdaEvent)
 	if err != nil {
-		log.Printf("[Lambda] error marshaling event for trigger %s: %v", job.trigger.ID, err)
+		slog.Error("lambda error marshaling event", "trigger_id", job.trigger.ID, "error", err)
 		return
 	}
 
 	resp, err := m.client.Post(job.trigger.FunctionURL, "application/json", bytes.NewReader(payload))
 	if err != nil {
-		log.Printf("[Lambda] error calling %s for trigger %s: %v", job.trigger.FunctionURL, job.trigger.ID, err)
+		slog.Error("lambda function call failed", "url", job.trigger.FunctionURL, "trigger_id", job.trigger.ID, "error", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		log.Printf("[Lambda] trigger %s returned status %d from %s", job.trigger.ID, resp.StatusCode, job.trigger.FunctionURL)
+		slog.Warn("lambda trigger returned error status", "trigger_id", job.trigger.ID, "status", resp.StatusCode, "url", job.trigger.FunctionURL)
 		return
 	}
 
@@ -213,7 +213,7 @@ func (m *TriggerManager) executeTrigger(job triggerJob) {
 	if job.trigger.OutputBucket != "" && job.trigger.OutputKeyTemplate != "" {
 		responseBody, err := io.ReadAll(io.LimitReader(resp.Body, m.maxResponseSize))
 		if err != nil {
-			log.Printf("[Lambda] error reading response for trigger %s: %v", job.trigger.ID, err)
+			slog.Error("lambda error reading response", "trigger_id", job.trigger.ID, "error", err)
 			return
 		}
 
@@ -226,8 +226,7 @@ func (m *TriggerManager) executeTrigger(job triggerJob) {
 
 		_, _, err = m.engine.PutObject(job.trigger.OutputBucket, outputKey, bytes.NewReader(responseBody), int64(len(responseBody)))
 		if err != nil {
-			log.Printf("[Lambda] error storing output for trigger %s to %s/%s: %v",
-				job.trigger.ID, job.trigger.OutputBucket, outputKey, err)
+			slog.Error("lambda error storing output", "trigger_id", job.trigger.ID, "bucket", job.trigger.OutputBucket, "key", outputKey, "error", err)
 			return
 		}
 
@@ -240,8 +239,7 @@ func (m *TriggerManager) executeTrigger(job triggerJob) {
 			LastModified: time.Now().Unix(),
 		})
 
-		log.Printf("[Lambda] trigger %s stored output to %s/%s (%d bytes)",
-			job.trigger.ID, job.trigger.OutputBucket, outputKey, len(responseBody))
+		slog.Info("lambda trigger stored output", "trigger_id", job.trigger.ID, "bucket", job.trigger.OutputBucket, "key", outputKey, "bytes", len(responseBody))
 	}
 }
 

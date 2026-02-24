@@ -36,7 +36,18 @@ type Collector struct {
 	// Per-bucket metrics
 	bucketMu      sync.RWMutex
 	bucketMetrics map[string]*bucketMetrics
+
+	// Request latency histogram
+	latencyMu      sync.Mutex
+	latencyBuckets [latencyBucketCount]atomic.Int64
+	latencySum     atomic.Int64 // microseconds
+	latencyCount   atomic.Int64
 }
+
+// Histogram bucket boundaries in seconds
+var latencyBounds = [latencyBucketCount]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+
+const latencyBucketCount = 11
 
 // HTTP method indices for counter array
 const (
@@ -117,6 +128,18 @@ func (c *Collector) RecordBytesIn(n int64) {
 // RecordBytesOut adds to the egress byte counter.
 func (c *Collector) RecordBytesOut(n int64) {
 	c.bytesOut.Add(n)
+}
+
+// RecordLatency records a request duration in the histogram.
+func (c *Collector) RecordLatency(d time.Duration) {
+	secs := d.Seconds()
+	for i, bound := range latencyBounds {
+		if secs <= bound {
+			c.latencyBuckets[i].Add(1)
+		}
+	}
+	c.latencySum.Add(d.Microseconds())
+	c.latencyCount.Add(1)
 }
 
 // getBucketMetrics returns the per-bucket metrics entry, creating it if needed.
@@ -247,6 +270,14 @@ func (c *Collector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "vaults3_bucket_errors_total{bucket=%q} %d\n", name, v)
 		}
 	}
+
+	// Request latency histogram
+	for i, bound := range latencyBounds {
+		fmt.Fprintf(w, "vaults3_request_duration_seconds_bucket{le=\"%.3f\"} %d\n", bound, c.latencyBuckets[i].Load())
+	}
+	fmt.Fprintf(w, "vaults3_request_duration_seconds_bucket{le=\"+Inf\"} %d\n", c.latencyCount.Load())
+	fmt.Fprintf(w, "vaults3_request_duration_seconds_sum %.6f\n", float64(c.latencySum.Load())/1e6)
+	fmt.Fprintf(w, "vaults3_request_duration_seconds_count %d\n", c.latencyCount.Load())
 
 	// Go runtime metrics
 	var mem runtime.MemStats

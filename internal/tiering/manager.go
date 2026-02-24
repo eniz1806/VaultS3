@@ -3,7 +3,7 @@ package tiering
 import (
 	"context"
 	"io"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/eniz1806/VaultS3/internal/metadata"
@@ -67,7 +67,7 @@ func (m *Manager) scan() {
 		}
 
 		if err := m.migrateToCol(bucket, key); err != nil {
-			log.Printf("tiering: failed to migrate %s/%s to cold: %v", bucket, key, err)
+			slog.Error("tiering failed to migrate to cold", "bucket", bucket, "key", key, "error", err)
 		} else {
 			migrated++
 		}
@@ -75,7 +75,7 @@ func (m *Manager) scan() {
 	})
 
 	if migrated > 0 {
-		log.Printf("tiering: migrated %d objects to cold tier", migrated)
+		slog.Info("tiering migration complete", "objects", migrated)
 	}
 }
 
@@ -110,7 +110,7 @@ func (m *Manager) MigrateToHot(bucket, key string) error {
 	}
 
 	if err := m.coldEngine.DeleteObject(bucket, key); err != nil {
-		log.Printf("tiering: failed to delete cold copy %s/%s: %v", bucket, key, err)
+		slog.Error("tiering failed to delete cold copy", "bucket", bucket, "key", key, "error", err)
 	}
 
 	return m.store.SetObjectTier(bucket, key, "hot")

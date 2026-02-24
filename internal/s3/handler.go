@@ -2,7 +2,7 @@ package s3
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -135,7 +135,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	bucket, key := h.parseRequest(r.Host, path)
 
-	log.Printf("[S3] %s /%s/%s", r.Method, bucket, key)
+	slog.Debug("S3 request", "method", r.Method, "bucket", bucket, "key", key)
 
 	// Record request metrics
 	if h.metrics != nil {

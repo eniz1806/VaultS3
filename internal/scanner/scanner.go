@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"sync"
@@ -79,7 +79,7 @@ func (s *Scanner) Start(ctx context.Context, workers int) {
 		s.wg.Add(1)
 		go s.worker(ctx)
 	}
-	log.Printf("  Scanner:      %d workers, webhook %s", workers, s.webhookURL)
+	slog.Info("scanner started", "workers", workers, "webhook", s.webhookURL)
 }
 
 // Stop shuts down the scanner gracefully.
@@ -98,7 +98,7 @@ func (s *Scanner) Scan(bucket, key string, size int64) {
 	select {
 	case s.jobs <- ScanJob{Bucket: bucket, Key: key, Size: size}:
 	default:
-		log.Printf("[scanner] queue full, dropping scan for %s/%s", bucket, key)
+		slog.Warn("scanner queue full, dropping scan", "bucket", bucket, "key", key)
 	}
 }
 
@@ -248,7 +248,7 @@ func (s *Scanner) quarantine(job ScanJob, reason string) {
 	// Read the object
 	reader, size, err := s.engine.GetObject(job.Bucket, job.Key)
 	if err != nil {
-		log.Printf("[scanner] quarantine: failed to read %s/%s: %v", job.Bucket, job.Key, err)
+		slog.Error("scanner quarantine: failed to read", "bucket", job.Bucket, "key", job.Key, "error", err)
 		return
 	}
 	defer reader.Close()
@@ -256,18 +256,18 @@ func (s *Scanner) quarantine(job ScanJob, reason string) {
 	// Write to quarantine bucket with original bucket/key as the key
 	quarantineKey := fmt.Sprintf("%s/%s", job.Bucket, job.Key)
 	if _, _, err := s.engine.PutObject(s.quarantineBucket, quarantineKey, reader, size); err != nil {
-		log.Printf("[scanner] quarantine: failed to write %s: %v", quarantineKey, err)
+		slog.Error("scanner quarantine: failed to write", "key", quarantineKey, "error", err)
 		return
 	}
 
 	// Delete from original bucket
 	if err := s.engine.DeleteObject(job.Bucket, job.Key); err != nil {
-		log.Printf("[scanner] quarantine: failed to delete original %s/%s: %v", job.Bucket, job.Key, err)
+		slog.Error("scanner quarantine: failed to delete original", "bucket", job.Bucket, "key", job.Key, "error", err)
 		return
 	}
 	s.store.DeleteObjectMeta(job.Bucket, job.Key)
 
-	log.Printf("[scanner] quarantined %s/%s: %s", job.Bucket, job.Key, reason)
+	slog.Warn("scanner quarantined object", "bucket", job.Bucket, "key", job.Key, "reason", reason)
 }
 
 func (s *Scanner) addResult(r ScanResult) {

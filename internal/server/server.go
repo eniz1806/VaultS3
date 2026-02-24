@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +19,7 @@ import (
 	"github.com/eniz1806/VaultS3/internal/config"
 	"github.com/eniz1806/VaultS3/internal/dashboard"
 	"github.com/eniz1806/VaultS3/internal/lambda"
+	"github.com/eniz1806/VaultS3/internal/middleware"
 	"github.com/eniz1806/VaultS3/internal/lifecycle"
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
@@ -63,7 +64,7 @@ func New(cfg *config.Config) (*Server, error) {
 	// Wrap with compression if enabled (compress before encrypt)
 	if cfg.Compression.Enabled {
 		engine = storage.NewCompressedEngine(engine)
-		log.Println("Compression: enabled (gzip)")
+		slog.Info("compression enabled", "algorithm", "gzip")
 	}
 
 	// Wrap with encryption if enabled
@@ -77,7 +78,7 @@ func New(cfg *config.Config) (*Server, error) {
 			return nil, fmt.Errorf("init encryption: %w", err)
 		}
 		engine = enc
-		log.Println("Encryption at rest: enabled (AES-256-GCM)")
+		slog.Info("encryption at rest enabled", "algorithm", "AES-256-GCM")
 	}
 
 	// Initialize metadata store
@@ -112,7 +113,7 @@ func New(cfg *config.Config) (*Server, error) {
 			store.Close()
 			return nil, fmt.Errorf("init access logger: %w", err)
 		}
-		log.Printf("Access logging: enabled (%s)", cfg.Logging.FilePath)
+		slog.Info("access logging enabled", "path", cfg.Logging.FilePath)
 	}
 
 	// Wire activity recording from S3 handler to activity log + access logger
@@ -165,7 +166,7 @@ func New(cfg *config.Config) (*Server, error) {
 	if nc.NATS.Enabled && nc.NATS.URL != "" && nc.NATS.Subject != "" {
 		natsBackend, err := notify.NewNATSBackend(nc.NATS.URL, nc.NATS.Subject)
 		if err != nil {
-			log.Printf("Warning: NATS backend failed to connect: %v", err)
+			slog.Warn("NATS backend failed to connect", "error", err)
 		} else {
 			notifyDispatcher.AddBackend(natsBackend)
 		}
@@ -198,13 +199,13 @@ func New(cfg *config.Config) (*Server, error) {
 				})
 			}
 		})
-		log.Printf("  Replication:  enabled (%d peers, scan every %ds)", len(cfg.Replication.Peers), cfg.Replication.ScanIntervalSecs)
+		slog.Info("replication enabled", "peers", len(cfg.Replication.Peers), "interval_secs", cfg.Replication.ScanIntervalSecs)
 	}
 
 	// Build search index
 	searchIdx := search.NewIndex(store, cfg.Memory.MaxSearchEntries)
 	if err := searchIdx.Build(); err != nil {
-		log.Printf("Warning: search index build failed: %v", err)
+		slog.Warn("search index build failed", "error", err)
 	}
 	s3h.SetSearchUpdateFunc(func(eventType, bucket, key string) {
 		if eventType == "delete" {
@@ -237,14 +238,14 @@ func New(cfg *config.Config) (*Server, error) {
 			return nil, fmt.Errorf("init cold storage: %w", err)
 		}
 		tieringMgr = tiering.NewManager(store, fs, coldFS, cfg.Tiering.MigrateAfterDays, cfg.Tiering.ScanIntervalSecs)
-		log.Printf("  Tiering:      enabled (cold=%s, migrate after %dd)", cfg.Tiering.ColdDataDir, cfg.Tiering.MigrateAfterDays)
+		slog.Info("tiering enabled", "cold_dir", cfg.Tiering.ColdDataDir, "migrate_after_days", cfg.Tiering.MigrateAfterDays)
 	}
 
 	// Initialize backup scheduler if enabled
 	var backupSched *backup.Scheduler
 	if cfg.Backup.Enabled && len(cfg.Backup.Targets) > 0 {
 		backupSched = backup.NewScheduler(store, engine, cfg.Backup)
-		log.Printf("  Backup:       enabled (%d targets, schedule=%s)", len(cfg.Backup.Targets), cfg.Backup.ScheduleCron)
+		slog.Info("backup enabled", "targets", len(cfg.Backup.Targets), "schedule", cfg.Backup.ScheduleCron)
 	}
 
 	// Initialize rate limiter if enabled
@@ -255,9 +256,9 @@ func New(cfg *config.Config) (*Server, error) {
 			cfg.RateLimit.PerKeyRPS, cfg.RateLimit.PerKeyBurst,
 		)
 		s3h.SetRateLimiter(rateLimiter)
-		log.Printf("  Rate limit:   enabled (IP: %.0f rps/%d burst, Key: %.0f rps/%d burst)",
-			cfg.RateLimit.RequestsPerSec, cfg.RateLimit.BurstSize,
-			cfg.RateLimit.PerKeyRPS, cfg.RateLimit.PerKeyBurst)
+		slog.Info("rate limiting enabled",
+			"ip_rps", cfg.RateLimit.RequestsPerSec, "ip_burst", cfg.RateLimit.BurstSize,
+			"key_rps", cfg.RateLimit.PerKeyRPS, "key_burst", cfg.RateLimit.PerKeyBurst)
 	}
 
 	// Initialize lambda trigger manager if enabled
@@ -267,7 +268,7 @@ func New(cfg *config.Config) (*Server, error) {
 		s3h.SetLambdaFunc(func(eventType, bucket, key string, size int64, etag, versionID string) {
 			lambdaMgr.Dispatch(bucket, key, eventType, size, etag, versionID)
 		})
-		log.Printf("  Lambda:       enabled (%d workers, queue %d)", cfg.Lambda.MaxWorkers, cfg.Lambda.QueueSize)
+		slog.Info("lambda triggers enabled", "workers", cfg.Lambda.MaxWorkers, "queue_size", cfg.Lambda.QueueSize)
 	}
 
 	// Initialize batched access updater
@@ -327,10 +328,10 @@ func (s *Server) Run() error {
 			s.cfg.OIDC.JWKSCacheSecs,
 		)
 		if err != nil {
-			log.Printf("Warning: OIDC setup failed: %v", err)
+			slog.Warn("OIDC setup failed", "error", err)
 		} else {
 			apiHandler.SetOIDCValidator(oidcValidator)
-			log.Printf("  OIDC:         enabled (issuer=%s)", s.cfg.OIDC.IssuerURL)
+			slog.Info("OIDC enabled", "issuer", s.cfg.OIDC.IssuerURL)
 		}
 	}
 
@@ -342,9 +343,15 @@ func (s *Server) Run() error {
 	mux.Handle("/metrics", s.metrics)
 	mux.Handle("/", s.s3h)
 
+	// Wrap mux with middleware: panic recovery (outermost) → request ID → latency → mux
+	var handler http.Handler = mux
+	handler = middleware.Latency(s.metrics, handler)
+	handler = middleware.RequestID(handler)
+	handler = middleware.PanicRecovery(handler)
+
 	httpServer := &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: handler,
 	}
 
 	// Log startup info
@@ -352,27 +359,28 @@ func (s *Server) Run() error {
 	if s.cfg.Server.TLS.Enabled {
 		scheme = "https"
 	}
-	log.Printf("VaultS3 starting on %s", addr)
-	log.Printf("  Data dir:     %s", s.cfg.Storage.DataDir)
-	log.Printf("  Metadata dir: %s", s.cfg.Storage.MetadataDir)
-	log.Printf("  Access key:   %s", s.cfg.Auth.AdminAccessKey)
-	log.Printf("  Dashboard:    %s://%s/dashboard/", scheme, addr)
-	log.Printf("  Health:       %s://%s/health", scheme, addr)
+	slog.Info("VaultS3 starting",
+		"addr", addr,
+		"data_dir", s.cfg.Storage.DataDir,
+		"metadata_dir", s.cfg.Storage.MetadataDir,
+		"access_key", s.cfg.Auth.AdminAccessKey,
+		"dashboard", fmt.Sprintf("%s://%s/dashboard/", scheme, addr),
+	)
 	if s.cfg.Encryption.Enabled {
-		log.Printf("  Encryption:   AES-256-GCM")
+		slog.Info("encryption enabled", "algorithm", "AES-256-GCM")
 	}
 	if s.cfg.Server.Domain != "" {
-		log.Printf("  Domain:       %s (virtual-hosted URLs enabled)", s.cfg.Server.Domain)
+		slog.Info("virtual-hosted URLs enabled", "domain", s.cfg.Server.Domain)
 	}
 	if s.cfg.Server.TLS.Enabled {
-		log.Printf("  TLS:          enabled (%s, %s)", s.cfg.Server.TLS.CertFile, s.cfg.Server.TLS.KeyFile)
+		slog.Info("TLS enabled", "cert", s.cfg.Server.TLS.CertFile, "key", s.cfg.Server.TLS.KeyFile)
 	}
 
 	// Apply Go memory limit if configured
 	if s.cfg.Memory.GoMemLimitMB > 0 {
 		limit := int64(s.cfg.Memory.GoMemLimitMB) * 1024 * 1024
 		debug.SetMemoryLimit(limit)
-		log.Printf("  Memory limit: %d MB", s.cfg.Memory.GoMemLimitMB)
+		slog.Info("memory limit set", "mb", s.cfg.Memory.GoMemLimitMB)
 	}
 
 	// Start batched access updater
@@ -385,13 +393,13 @@ func (s *Server) Run() error {
 	defer lcCancel()
 	lcWorker := lifecycle.NewWorker(s.store, s.engine, s.cfg.Lifecycle.ScanIntervalSecs, s.cfg.Security.AuditRetentionDays)
 	go lcWorker.Run(lcCtx)
-	log.Printf("  Lifecycle:    scan every %ds", s.cfg.Lifecycle.ScanIntervalSecs)
+	slog.Info("lifecycle worker started", "interval_secs", s.cfg.Lifecycle.ScanIntervalSecs)
 
 	// Start notification dispatcher
 	notifyCtx, notifyCancel := context.WithCancel(context.Background())
 	defer notifyCancel()
 	s.notifyDisp.Start(notifyCtx)
-	log.Printf("  Notifications: %d workers, queue size %d", s.cfg.Notifications.MaxWorkers, s.cfg.Notifications.QueueSize)
+	slog.Info("notifications started", "workers", s.cfg.Notifications.MaxWorkers, "queue_size", s.cfg.Notifications.QueueSize)
 
 	// Start replication worker if enabled
 	if s.replWorker != nil {
@@ -429,7 +437,7 @@ func (s *Server) Run() error {
 		go s.backupSched.Run(backupCtx)
 	}
 
-	log.Printf("  Search:       %d objects indexed", s.searchIndex.Count())
+	slog.Info("search index ready", "objects", s.searchIndex.Count())
 
 	// Start server in goroutine
 	errCh := make(chan error, 1)
@@ -449,7 +457,7 @@ func (s *Server) Run() error {
 	case err := <-errCh:
 		return fmt.Errorf("server error: %w", err)
 	case sig := <-sigCh:
-		log.Printf("Received %v, shutting down gracefully...", sig)
+		slog.Info("received signal, shutting down", "signal", sig)
 	}
 
 	// Graceful shutdown
@@ -458,11 +466,11 @@ func (s *Server) Run() error {
 	defer cancel()
 
 	if err := httpServer.Shutdown(ctx); err != nil {
-		log.Printf("Graceful shutdown timed out after %v: %v", timeout, err)
+		slog.Error("graceful shutdown timed out", "timeout", timeout, "error", err)
 		return err
 	}
 
-	log.Println("Server stopped gracefully")
+	slog.Info("server stopped gracefully")
 	return nil
 }
 

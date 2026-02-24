@@ -2,7 +2,7 @@ package lifecycle
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -49,7 +49,7 @@ func (w *Worker) scan() {
 	// Get all buckets and their lifecycle rules
 	buckets, err := w.store.ListBuckets()
 	if err != nil {
-		log.Printf("[Lifecycle] error listing buckets: %v", err)
+		slog.Error("lifecycle error listing buckets", "error", err)
 		return
 	}
 
@@ -112,7 +112,7 @@ func (w *Worker) scan() {
 
 		// Delete the object
 		if err := w.engine.DeleteObject(meta.Bucket, meta.Key); err != nil {
-			log.Printf("[Lifecycle] error deleting %s/%s: %v", meta.Bucket, meta.Key, err)
+			slog.Error("lifecycle error deleting object", "bucket", meta.Bucket, "key", meta.Key, "error", err)
 			return true
 		}
 		w.store.DeleteObjectMeta(meta.Bucket, meta.Key)
@@ -122,7 +122,7 @@ func (w *Worker) scan() {
 	})
 
 	if expired > 0 {
-		log.Printf("[Lifecycle] deleted %d expired object(s)", expired)
+		slog.Info("lifecycle deleted expired objects", "count", expired)
 	}
 
 	// Prune old audit entries
@@ -130,17 +130,17 @@ func (w *Worker) scan() {
 		cutoff := time.Now().UTC().AddDate(0, 0, -w.auditRetentionDays)
 		pruned, err := w.store.PruneAuditEntries(cutoff)
 		if err != nil {
-			log.Printf("[Lifecycle] error pruning audit entries: %v", err)
+			slog.Error("lifecycle error pruning audit entries", "error", err)
 		} else if pruned > 0 {
-			log.Printf("[Lifecycle] pruned %d old audit entries", pruned)
+			slog.Info("lifecycle pruned audit entries", "count", pruned)
 		}
 	}
 
 	// Clean up expired STS keys
 	deleted, err := w.store.DeleteExpiredAccessKeys()
 	if err != nil {
-		log.Printf("[Lifecycle] error cleaning expired keys: %v", err)
+		slog.Error("lifecycle error cleaning expired keys", "error", err)
 	} else if deleted > 0 {
-		log.Printf("[Lifecycle] removed %d expired STS keys", deleted)
+		slog.Info("lifecycle removed expired STS keys", "count", deleted)
 	}
 }

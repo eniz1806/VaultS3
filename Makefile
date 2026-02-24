@@ -1,4 +1,4 @@
-.PHONY: build build-go cli run clean test fmt web dev-web dev-api
+.PHONY: build build-go cli run clean test test-coverage lint fmt web dev-web dev-api
 
 BINARY_NAME=vaults3
 CLI_NAME=vaults3-cli
@@ -43,6 +43,15 @@ clean:
 
 test:
 	go test ./...
+
+test-coverage:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+	@echo "HTML report: go tool cover -html=coverage.out"
+
+lint:
+	@which golangci-lint > /dev/null 2>&1 || echo "Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+	golangci-lint run ./...
 
 fmt:
 	go fmt ./...

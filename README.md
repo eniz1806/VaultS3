@@ -54,6 +54,10 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **FUSE mount** — Mount VaultS3 buckets as local filesystem directories with read/write support, lazy loading, and SigV4 authentication. LRU block cache (256KB blocks, configurable size), metadata cache with TTL, kernel attribute caching, and SigV4 derived key caching for fast repeated reads
 - **OIDC/JWT SSO** — Sign in to the dashboard with external identity providers (Google, Keycloak, Auth0) via OpenID Connect. RS256 JWT verification with JWKS auto-discovery and caching. Email domain filtering, auto-create users, OIDC group to policy mapping.
 - **Lambda compute triggers** — Webhook-based function triggers on S3 events. Call external URLs with event payload and optional object body, optionally store the response as a new object. Per-bucket trigger configuration with event type and key prefix/suffix filtering. Worker pool with non-blocking dispatch.
+- **Structured logging (slog)** — All server logs use Go's `log/slog` with key-value pairs; configurable log level (`debug`, `info`, `warn`, `error`) via `logging.level` in config
+- **Request ID middleware** — Every response includes an `X-Request-Id` header for request tracing
+- **Panic recovery middleware** — Catches panics, logs full stack trace, returns 500 without crashing the server
+- **Request latency histogram** — `vaults3_request_duration_seconds_bucket` Prometheus histogram with 11 bucket boundaries (5ms to 10s)
 - **RAM optimization** — Slim search index with LRU eviction cap (50K entries default), batched last-access updates (30s flush interval), configurable Go memory limit (`GOMEMLIMIT`)
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
@@ -172,6 +176,7 @@ compression:
 logging:
   enabled: false
   file_path: "./access.log"
+  level: "info"  # debug, info, warn, error
 
 lifecycle:
   scan_interval_secs: 3600
@@ -935,6 +940,7 @@ VaultS3/
 │   ├── backup/                — Backup scheduler with local targets
 │   ├── versioning/            — Version diff (LCS), tagging, rollback
 │   ├── fuse/                  — FUSE filesystem mount (go-fuse/v2)
+│   ├── middleware/             — HTTP middleware (request ID, panic recovery, latency)
 │   ├── api/                   — Dashboard REST API (JWT auth, IAM, STS, audit)
 │   └── dashboard/             — Embedded React SPA
 ├── web/                       — React dashboard source (Vite + Tailwind)
@@ -1014,3 +1020,9 @@ VaultS3/
 - [x] RAM optimization (slim search index with LRU cap, batched last-access writes, GOMEMLIMIT support)
 - [x] Dashboard advanced pages (IAM users/groups/policies, audit trail, search, notifications, replication, lambda triggers, backups — 7 new pages with full CRUD)
 - [x] GetBucketLocation, Bucket Tagging, Bucket/Object ACL, ListMultipartUploads, ListParts (6 new S3 operations for AWS CLI/SDK compatibility)
+- [x] Structured logging with slog (key-value pairs, configurable log level)
+- [x] Request ID middleware (X-Request-Id header on every response)
+- [x] Panic recovery middleware (stack trace logging, graceful 500 responses)
+- [x] Request latency histogram (Prometheus-compatible `vaults3_request_duration_seconds_bucket`)
+- [x] Go unit tests for 5 core packages (metadata, storage, IAM, ratelimit, search)
+- [x] Makefile targets: `make test-coverage`, `make lint`

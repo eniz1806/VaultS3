@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -67,14 +67,14 @@ func (w *Worker) processQueue() {
 	now := time.Now().Unix()
 	events, err := w.store.DequeueReplication(w.batchSize, now)
 	if err != nil {
-		log.Printf("[replication] dequeue error: %v", err)
+		slog.Error("replication dequeue error", "error", err)
 		return
 	}
 
 	for _, event := range events {
 		peer, ok := w.peers[event.Peer]
 		if !ok {
-			log.Printf("[replication] unknown peer %q, dead-lettering event %d", event.Peer, event.ID)
+			slog.Warn("replication unknown peer, dead-lettering", "peer", event.Peer, "event_id", event.ID)
 			w.store.DeadLetterReplication(event.ID)
 			w.updateStatus(event.Peer, "", true)
 			continue
@@ -87,16 +87,16 @@ func (w *Worker) processQueue() {
 		case "delete":
 			replicateErr = w.replicateDelete(peer, event)
 		default:
-			log.Printf("[replication] unknown event type %q, skipping", event.Type)
+			slog.Warn("replication unknown event type", "type", event.Type)
 			w.store.AckReplication(event.ID)
 			continue
 		}
 
 		if replicateErr != nil {
-			log.Printf("[replication] peer=%s %s %s/%s failed: %v", peer.Name, event.Type, event.Bucket, event.Key, replicateErr)
+			slog.Error("replication failed", "peer", peer.Name, "type", event.Type, "bucket", event.Bucket, "key", event.Key, "error", replicateErr)
 			event.RetryCount++
 			if event.RetryCount >= w.maxRetries {
-				log.Printf("[replication] peer=%s event %d exceeded max retries, dead-lettering", peer.Name, event.ID)
+				slog.Warn("replication max retries exceeded, dead-lettering", "peer", peer.Name, "event_id", event.ID)
 				w.store.DeadLetterReplication(event.ID)
 				w.updateStatus(peer.Name, replicateErr.Error(), true)
 			} else {
@@ -121,7 +121,7 @@ func (w *Worker) replicatePut(peer config.ReplicationPeer, event metadata.Replic
 	reader, size, err := w.engine.GetObject(event.Bucket, event.Key)
 	if err != nil {
 		// Object no longer exists locally — skip
-		log.Printf("[replication] object %s/%s not found locally, skipping put", event.Bucket, event.Key)
+		slog.Debug("replication object not found locally, skipping", "bucket", event.Bucket, "key", event.Key)
 		return nil
 	}
 	defer reader.Close()

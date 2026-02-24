@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -105,7 +105,7 @@ func (d *Dispatcher) AddBackend(b Backend) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.backends = append(d.backends, b)
-	log.Printf("[Notify] backend registered: %s", b.Name())
+	slog.Info("notification backend registered", "backend", b.Name())
 }
 
 func (d *Dispatcher) Stop() {
@@ -145,7 +145,7 @@ func (d *Dispatcher) Dispatch(bucket, key, eventType string, size int64, etag, v
 
 	payload, err := json.Marshal(event)
 	if err != nil {
-		log.Printf("[Notify] error marshaling event: %v", err)
+		slog.Error("notify error marshaling event", "error", err)
 		return
 	}
 
@@ -156,7 +156,7 @@ func (d *Dispatcher) Dispatch(bucket, key, eventType string, size int64, etag, v
 	d.mu.Unlock()
 	for _, b := range backends {
 		if err := b.Publish(context.Background(), payload); err != nil {
-			log.Printf("[Notify] backend %s publish error: %v", b.Name(), err)
+			slog.Error("notify backend publish error", "backend", b.Name(), "error", err)
 		}
 	}
 
@@ -179,7 +179,7 @@ func (d *Dispatcher) Dispatch(bucket, key, eventType string, size int64, etag, v
 		select {
 		case d.workerCh <- job:
 		default:
-			log.Printf("[Notify] queue full, dropping event %s for %s/%s", eventType, bucket, key)
+			slog.Warn("notify queue full, dropping event", "event", eventType, "bucket", bucket, "key", key)
 		}
 	}
 }
@@ -206,10 +206,10 @@ func (d *Dispatcher) deliverWebhook(job deliveryJob) {
 		select {
 		case d.workerCh <- job:
 		default:
-			log.Printf("[Notify] queue full on retry, dropping webhook to %s", job.endpoint)
+			slog.Warn("notify queue full on retry, dropping webhook", "endpoint", job.endpoint)
 		}
 	} else {
-		log.Printf("[Notify] webhook failed after %d retries to %s: %v", job.maxRetries, job.endpoint, err)
+		slog.Error("notify webhook failed after retries", "retries", job.maxRetries, "endpoint", job.endpoint, "error", err)
 	}
 }
 
