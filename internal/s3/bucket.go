@@ -692,6 +692,217 @@ func (h *BucketHandler) DeleteBucketNotification(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PutBucketEncryption handles PUT /{bucket}?encryption.
+func (h *BucketHandler) PutBucketEncryption(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	var req struct {
+		XMLName xml.Name `xml:"ServerSideEncryptionConfiguration"`
+		Rules   []struct {
+			DefaultEncryption struct {
+				SSEAlgorithm string `xml:"SSEAlgorithm"`
+				KMSKeyID     string `xml:"KMSMasterKeyID"`
+			} `xml:"ApplyServerSideEncryptionByDefault"`
+		} `xml:"Rule"`
+	}
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedXML", "Could not parse encryption XML", http.StatusBadRequest)
+		return
+	}
+	if len(req.Rules) == 0 {
+		writeS3Error(w, "InvalidArgument", "At least one rule is required", http.StatusBadRequest)
+		return
+	}
+	rule := req.Rules[0]
+	if err := h.store.PutEncryptionConfig(bucket, metadata.BucketEncryptionConfig{
+		SSEAlgorithm: rule.DefaultEncryption.SSEAlgorithm,
+		KMSKeyID:     rule.DefaultEncryption.KMSKeyID,
+	}); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketEncryption handles GET /{bucket}?encryption.
+func (h *BucketHandler) GetBucketEncryption(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	cfg, err := h.store.GetEncryptionConfig(bucket)
+	if err != nil {
+		writeS3Error(w, "ServerSideEncryptionConfigurationNotFoundError", "No encryption configuration", http.StatusNotFound)
+		return
+	}
+	type xmlDefault struct {
+		SSEAlgorithm string `xml:"SSEAlgorithm"`
+		KMSKeyID     string `xml:"KMSMasterKeyID,omitempty"`
+	}
+	type xmlRule struct {
+		DefaultEncryption xmlDefault `xml:"ApplyServerSideEncryptionByDefault"`
+	}
+	type xmlSSEConfig struct {
+		XMLName xml.Name  `xml:"ServerSideEncryptionConfiguration"`
+		Xmlns   string    `xml:"xmlns,attr"`
+		Rules   []xmlRule `xml:"Rule"`
+	}
+	writeXML(w, http.StatusOK, xmlSSEConfig{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		Rules: []xmlRule{{
+			DefaultEncryption: xmlDefault{SSEAlgorithm: cfg.SSEAlgorithm, KMSKeyID: cfg.KMSKeyID},
+		}},
+	})
+}
+
+// DeleteBucketEncryption handles DELETE /{bucket}?encryption.
+func (h *BucketHandler) DeleteBucketEncryption(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	h.store.DeleteEncryptionConfig(bucket)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PutPublicAccessBlock handles PUT /{bucket}?publicAccessBlock.
+func (h *BucketHandler) PutPublicAccessBlock(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	var req struct {
+		XMLName               xml.Name `xml:"PublicAccessBlockConfiguration"`
+		BlockPublicAcls       bool     `xml:"BlockPublicAcls"`
+		IgnorePublicAcls      bool     `xml:"IgnorePublicAcls"`
+		BlockPublicPolicy     bool     `xml:"BlockPublicPolicy"`
+		RestrictPublicBuckets bool     `xml:"RestrictPublicBuckets"`
+	}
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedXML", "Could not parse public access block XML", http.StatusBadRequest)
+		return
+	}
+	if err := h.store.PutPublicAccessBlock(bucket, metadata.PublicAccessBlockConfig{
+		BlockPublicAcls:       req.BlockPublicAcls,
+		IgnorePublicAcls:      req.IgnorePublicAcls,
+		BlockPublicPolicy:     req.BlockPublicPolicy,
+		RestrictPublicBuckets: req.RestrictPublicBuckets,
+	}); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetPublicAccessBlock handles GET /{bucket}?publicAccessBlock.
+func (h *BucketHandler) GetPublicAccessBlock(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	cfg, err := h.store.GetPublicAccessBlock(bucket)
+	if err != nil {
+		writeS3Error(w, "NoSuchPublicAccessBlockConfiguration", "No public access block configuration", http.StatusNotFound)
+		return
+	}
+	type xmlPAB struct {
+		XMLName               xml.Name `xml:"PublicAccessBlockConfiguration"`
+		Xmlns                 string   `xml:"xmlns,attr"`
+		BlockPublicAcls       bool     `xml:"BlockPublicAcls"`
+		IgnorePublicAcls      bool     `xml:"IgnorePublicAcls"`
+		BlockPublicPolicy     bool     `xml:"BlockPublicPolicy"`
+		RestrictPublicBuckets bool     `xml:"RestrictPublicBuckets"`
+	}
+	writeXML(w, http.StatusOK, xmlPAB{
+		Xmlns:                 "http://s3.amazonaws.com/doc/2006-03-01/",
+		BlockPublicAcls:       cfg.BlockPublicAcls,
+		IgnorePublicAcls:      cfg.IgnorePublicAcls,
+		BlockPublicPolicy:     cfg.BlockPublicPolicy,
+		RestrictPublicBuckets: cfg.RestrictPublicBuckets,
+	})
+}
+
+// DeletePublicAccessBlock handles DELETE /{bucket}?publicAccessBlock.
+func (h *BucketHandler) DeletePublicAccessBlock(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	h.store.DeletePublicAccessBlock(bucket)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PutBucketLogging handles PUT /{bucket}?logging.
+func (h *BucketHandler) PutBucketLogging(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	var req struct {
+		XMLName       xml.Name `xml:"BucketLoggingStatus"`
+		LoggingEnabled *struct {
+			TargetBucket string `xml:"TargetBucket"`
+			TargetPrefix string `xml:"TargetPrefix"`
+		} `xml:"LoggingEnabled"`
+	}
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeS3Error(w, "MalformedXML", "Could not parse logging XML", http.StatusBadRequest)
+		return
+	}
+	if req.LoggingEnabled == nil {
+		// Disable logging
+		h.store.DeleteLoggingConfig(bucket)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if err := h.store.PutLoggingConfig(bucket, metadata.BucketLoggingConfig{
+		TargetBucket: req.LoggingEnabled.TargetBucket,
+		TargetPrefix: req.LoggingEnabled.TargetPrefix,
+	}); err != nil {
+		writeS3Error(w, "InternalError", err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// GetBucketLogging handles GET /{bucket}?logging.
+func (h *BucketHandler) GetBucketLogging(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	cfg, err := h.store.GetLoggingConfig(bucket)
+	if err != nil {
+		// No logging config — return empty BucketLoggingStatus
+		type xmlLoggingStatus struct {
+			XMLName xml.Name `xml:"BucketLoggingStatus"`
+			Xmlns   string   `xml:"xmlns,attr"`
+		}
+		writeXML(w, http.StatusOK, xmlLoggingStatus{
+			Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		})
+		return
+	}
+	type xmlLoggingEnabled struct {
+		TargetBucket string `xml:"TargetBucket"`
+		TargetPrefix string `xml:"TargetPrefix,omitempty"`
+	}
+	type xmlLoggingStatus struct {
+		XMLName        xml.Name          `xml:"BucketLoggingStatus"`
+		Xmlns          string            `xml:"xmlns,attr"`
+		LoggingEnabled xmlLoggingEnabled `xml:"LoggingEnabled"`
+	}
+	writeXML(w, http.StatusOK, xmlLoggingStatus{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		LoggingEnabled: xmlLoggingEnabled{
+			TargetBucket: cfg.TargetBucket,
+			TargetPrefix: cfg.TargetPrefix,
+		},
+	})
+}
+
 func isValidBucketName(name string) bool {
 	if len(name) < 3 || len(name) > 63 {
 		return false

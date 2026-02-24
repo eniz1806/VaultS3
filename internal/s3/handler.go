@@ -444,6 +444,49 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Bucket encryption
+		if _, ok := bq["encryption"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketEncryption(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketEncryption(w, r, bucket)
+			case http.MethodDelete:
+				h.buckets.DeleteBucketEncryption(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Public access block
+		if _, ok := bq["publicAccessBlock"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutPublicAccessBlock(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetPublicAccessBlock(w, r, bucket)
+			case http.MethodDelete:
+				h.buckets.DeletePublicAccessBlock(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
+		// Bucket logging
+		if _, ok := bq["logging"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketLogging(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketLogging(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
 		// List multipart uploads
 		if _, ok := bq["uploads"]; ok {
 			if r.Method == http.MethodGet {
@@ -516,11 +559,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Object attributes
+		if _, ok := q["attributes"]; ok {
+			if r.Method == http.MethodGet {
+				h.objects.GetObjectAttributes(w, r, bucket, key)
+			} else {
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
 		// Object ACL
 		if _, ok := q["acl"]; ok {
-			if r.Method == http.MethodGet {
+			switch r.Method {
+			case http.MethodGet:
 				h.objects.GetObjectACL(w, r, bucket, key)
-			} else {
+			case http.MethodPut:
+				h.objects.PutObjectACL(w, r, bucket, key)
+			default:
 				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
 			}
 			return

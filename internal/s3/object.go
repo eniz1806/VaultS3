@@ -923,6 +923,60 @@ func (h *ObjectHandler) ListObjects(w http.ResponseWriter, r *http.Request, buck
 	writeXML(w, http.StatusOK, resp)
 }
 
+// GetObjectAttributes handles GET /{bucket}/{key}?attributes.
+func (h *ObjectHandler) GetObjectAttributes(w http.ResponseWriter, r *http.Request, bucket, key string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	meta, err := h.store.GetObjectMeta(bucket, key)
+	if err != nil {
+		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+		return
+	}
+
+	type xmlObjectParts struct {
+		TotalPartsCount int `xml:"TotalPartsCount"`
+	}
+	type xmlChecksum struct{}
+	type xmlObjectAttributes struct {
+		XMLName      xml.Name        `xml:"GetObjectAttributesResponse"`
+		ETag         string          `xml:"ETag,omitempty"`
+		ObjectSize   int64           `xml:"ObjectSize"`
+		StorageClass string          `xml:"StorageClass"`
+		Checksum     *xmlChecksum    `xml:"Checksum,omitempty"`
+		ObjectParts  *xmlObjectParts `xml:"ObjectParts,omitempty"`
+	}
+
+	resp := xmlObjectAttributes{
+		ETag:         meta.ETag,
+		ObjectSize:   meta.Size,
+		StorageClass: "STANDARD",
+	}
+
+	if meta.VersionID != "" {
+		w.Header().Set("X-Amz-Version-Id", meta.VersionID)
+	}
+
+	writeXML(w, http.StatusOK, resp)
+}
+
+// PutObjectACL handles PUT /{bucket}/{key}?acl — accepts but is a no-op (VaultS3 uses policies).
+func (h *ObjectHandler) PutObjectACL(w http.ResponseWriter, r *http.Request, bucket, key string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+	_, err := h.store.GetObjectMeta(bucket, key)
+	if err != nil {
+		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+		return
+	}
+	io.Copy(io.Discard, r.Body)
+	w.WriteHeader(http.StatusOK)
+}
+
 // GetObjectACL handles GET /{bucket}/{key}?acl — returns default private ACL.
 func (h *ObjectHandler) GetObjectACL(w http.ResponseWriter, r *http.Request, bucket, key string) {
 	if !h.store.BucketExists(bucket) {

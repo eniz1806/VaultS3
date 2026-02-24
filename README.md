@@ -62,6 +62,10 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 - **Panic recovery middleware** — Catches panics, logs full stack trace, returns 500 without crashing the server
 - **Request latency histogram** — `vaults3_request_duration_seconds_bucket` Prometheus histogram with 11 bucket boundaries (5ms to 10s)
 - **RAM optimization** — Slim search index with LRU eviction cap (50K entries default), batched last-access updates (30s flush interval), configurable Go memory limit (`GOMEMLIMIT`)
+- **GetObjectAttributes** — Returns object size, ETag, and storage class; used internally by AWS SDK v2
+- **Bucket encryption config** — Per-bucket server-side encryption configuration (AES256, aws:kms) via `PUT/GET/DELETE /{bucket}?encryption`
+- **Public access block** — Per-bucket public access block with 4 boolean flags (BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, RestrictPublicBuckets)
+- **Bucket logging config** — Per-bucket access logging configuration with target bucket and prefix
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -98,7 +102,11 @@ Lightweight, S3-compatible object storage server with built-in web dashboard. Si
 | Get Bucket Location | `GET /{bucket}?location` | Done |
 | Bucket Tagging | `PUT/GET/DELETE /{bucket}?tagging` | Done |
 | Bucket ACL | `GET/PUT /{bucket}?acl` | Done |
-| Object ACL | `GET /{bucket}/{key}?acl` | Done |
+| Object ACL | `GET/PUT /{bucket}/{key}?acl` | Done |
+| Get Object Attributes | `GET /{bucket}/{key}?attributes` | Done |
+| Bucket Encryption | `PUT/GET/DELETE /{bucket}?encryption` | Done |
+| Public Access Block | `PUT/GET/DELETE /{bucket}?publicAccessBlock` | Done |
+| Bucket Logging | `PUT/GET /{bucket}?logging` | Done |
 | List Multipart Uploads | `GET /{bucket}?uploads` | Done |
 | List Parts | `GET /{bucket}/{key}?uploadId=X` | Done |
 | Metrics | `GET /metrics` | Done |
