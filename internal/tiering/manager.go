@@ -139,16 +139,25 @@ func (m *Manager) GetObject(bucket, key string) (storage.ReadSeekCloser, int64, 
 		return nil, 0, err
 	}
 
-	// Promote back to hot on access (async)
+	// Promote back to hot on access (async, with safety checks)
 	go func() {
+		// Re-check tier before promoting — another goroutine may have already done it
+		currentMeta, err := m.store.GetObjectMeta(bucket, key)
+		if err != nil || currentMeta.Tier == "hot" || currentMeta.Tier == "" {
+			return // already promoted or deleted
+		}
 		promoteReader, promoteSize, err := m.coldEngine.GetObject(bucket, key)
 		if err != nil {
 			return
 		}
 		defer promoteReader.Close()
-		m.hotEngine.PutObject(bucket, key, promoteReader, promoteSize)
-		m.coldEngine.DeleteObject(bucket, key)
+		if _, _, err := m.hotEngine.PutObject(bucket, key, promoteReader, promoteSize); err != nil {
+			slog.Error("tiering async promote failed", "bucket", bucket, "key", key, "error", err)
+			return
+		}
 		m.store.SetObjectTier(bucket, key, "hot")
+		// Only delete cold copy after tier metadata is updated
+		m.coldEngine.DeleteObject(bucket, key)
 	}()
 
 	return reader, size, nil

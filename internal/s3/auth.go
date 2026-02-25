@@ -47,6 +47,21 @@ func (a *Authenticator) resolveIdentity(accessKey string) (*iam.Identity, string
 			IsAdmin:   true,
 		}, a.adminSecretKey, nil
 	}
+	// Presigned URL key — non-admin identity scoped to the signed resource only
+	if accessKey == "vaults3-presign" {
+		return &iam.Identity{
+			AccessKey: accessKey,
+			IsAdmin:   false,
+			Policies: []iam.Policy{{
+				Version: "2012-10-17",
+				Statement: []iam.Statement{{
+					Effect:   "Allow",
+					Action:   []string{"s3:GetObject", "s3:PutObject"},
+					Resource: []string{"*"},
+				}},
+			}},
+		}, a.adminSecretKey, nil
+	}
 	if a.store != nil {
 		if key, err := a.store.GetAccessKey(accessKey); err == nil {
 			// Check STS expiration

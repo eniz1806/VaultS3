@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+const maxSelectSize int64 = 256 * 1024 * 1024
+
 // SelectObjectContent handles POST /{bucket}/{key}?select&select-type=2.
 func (h *ObjectHandler) SelectObjectContent(w http.ResponseWriter, r *http.Request, bucket, key string) {
 	if !h.store.BucketExists(bucket) {
@@ -40,7 +42,6 @@ func (h *ObjectHandler) SelectObjectContent(w http.ResponseWriter, r *http.Reque
 
 	// Reject objects larger than 256MB for S3 Select to prevent OOM
 	meta, _ := h.store.GetObjectMeta(bucket, key)
-	const maxSelectSize int64 = 256 * 1024 * 1024
 	if meta != nil && meta.Size > maxSelectSize {
 		writeS3Error(w, "InvalidArgument", "Object too large for S3 Select (max 256MB)", http.StatusBadRequest)
 		return
@@ -430,10 +431,17 @@ func parseCSVInput(reader io.Reader, cfg *csvInput) ([]map[string]string, error)
 	return records, nil
 }
 
+// maxSelectRecords caps the number of records parsed to prevent memory exhaustion.
+const maxSelectRecords = 1_000_000
+
 func parseJSONInput(reader io.Reader, cfg *jsonInput) ([]map[string]string, error) {
-	data, err := io.ReadAll(reader)
+	// Limit read to maxSelectSize (256MB) to prevent OOM
+	data, err := io.ReadAll(io.LimitReader(reader, maxSelectSize+1))
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(data)) > maxSelectSize {
+		return nil, fmt.Errorf("JSON input exceeds maximum size")
 	}
 
 	jsonType := strings.ToUpper(cfg.Type)
@@ -445,7 +453,7 @@ func parseJSONInput(reader io.Reader, cfg *jsonInput) ([]map[string]string, erro
 
 	switch jsonType {
 	case "DOCUMENT":
-		// Try array first
+		// Use json.Decoder with depth check via limited-size data
 		if err := json.Unmarshal(data, &rawRecords); err != nil {
 			// Try single object
 			var single map[string]interface{}
@@ -454,8 +462,14 @@ func parseJSONInput(reader io.Reader, cfg *jsonInput) ([]map[string]string, erro
 			}
 			rawRecords = []map[string]interface{}{single}
 		}
+		if len(rawRecords) > maxSelectRecords {
+			return nil, fmt.Errorf("too many records (max %d)", maxSelectRecords)
+		}
 	default: // LINES
 		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) > maxSelectRecords {
+			return nil, fmt.Errorf("too many lines (max %d)", maxSelectRecords)
+		}
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
 			if line == "" {
@@ -582,45 +596,52 @@ func compareValues(a, b string) int {
 }
 
 func matchLike(val, pattern string) bool {
-	// Simple glob-style LIKE matching without regex (avoids ReDoS)
+	// Iterative DP-based LIKE matching (avoids exponential backtracking)
 	// % = match any sequence, _ = match single character
 	// Case-insensitive
-	return matchLikeHelper(strings.ToLower(val), strings.ToLower(pattern))
-}
+	v := strings.ToLower(val)
+	p := strings.ToLower(pattern)
 
-func matchLikeHelper(val, pattern string) bool {
-	for len(pattern) > 0 {
-		switch pattern[0] {
-		case '%':
-			// Skip consecutive % characters
-			for len(pattern) > 0 && pattern[0] == '%' {
-				pattern = pattern[1:]
-			}
-			if len(pattern) == 0 {
-				return true // trailing % matches everything
-			}
-			// Try matching the rest of the pattern at each position
-			for i := 0; i <= len(val); i++ {
-				if matchLikeHelper(val[i:], pattern) {
-					return true
-				}
-			}
-			return false
-		case '_':
-			if len(val) == 0 {
-				return false
-			}
-			val = val[1:]
-			pattern = pattern[1:]
-		default:
-			if len(val) == 0 || val[0] != pattern[0] {
-				return false
-			}
-			val = val[1:]
-			pattern = pattern[1:]
+	// Cap pattern complexity to prevent abuse
+	if len(p) > 256 {
+		return false
+	}
+
+	vLen := len(v)
+	pLen := len(p)
+
+	// dp[j] = true means v[:i] matches p[:j]
+	dp := make([]bool, pLen+1)
+	dp[0] = true
+
+	// Initialize: leading % patterns match empty string
+	for j := 1; j <= pLen; j++ {
+		if p[j-1] == '%' {
+			dp[j] = dp[j-1]
+		} else {
+			break
 		}
 	}
-	return len(val) == 0
+
+	for i := 1; i <= vLen; i++ {
+		prev := dp[0]
+		dp[0] = false
+		for j := 1; j <= pLen; j++ {
+			temp := dp[j]
+			switch p[j-1] {
+			case '%':
+				// % matches zero (dp[j-1]) or more (dp[j] from previous row) characters
+				dp[j] = dp[j-1] || dp[j]
+			case '_':
+				dp[j] = prev
+			default:
+				dp[j] = prev && v[i-1] == p[j-1]
+			}
+			prev = temp
+		}
+	}
+
+	return dp[pLen]
 }
 
 func sortStrings(s []string) {

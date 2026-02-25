@@ -988,9 +988,21 @@ func (h *ObjectHandler) GetObjectAttributes(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	meta, err := h.store.GetObjectMeta(bucket, key)
-	if err != nil {
+	versionID := r.URL.Query().Get("versionId")
+	var meta *metadata.ObjectMeta
+	var err error
+	if versionID != "" {
+		meta, err = h.store.GetObjectVersion(bucket, key, versionID)
+	} else {
+		meta, err = h.store.GetObjectMeta(bucket, key)
+	}
+	if err != nil || meta == nil {
 		writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
+		return
+	}
+	if meta.DeleteMarker {
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		writeS3Error(w, "NoSuchKey", "Object is a delete marker", http.StatusNotFound)
 		return
 	}
 

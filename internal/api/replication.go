@@ -78,6 +78,9 @@ func (h *APIHandler) handleReplicationQueue(w http.ResponseWriter, r *http.Reque
 			limit = parsed
 		}
 	}
+	if limit > 1000 {
+		limit = 1000
+	}
 
 	events, err := h.store.ListReplicationQueue(limit)
 	if err != nil {

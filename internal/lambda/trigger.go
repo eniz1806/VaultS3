@@ -219,6 +219,14 @@ func (m *TriggerManager) executeTrigger(job triggerJob) {
 
 		outputKey := expandTemplate(job.trigger.OutputKeyTemplate, job.bucket, job.key)
 
+		// Validate output key doesn't contain path traversal
+		for _, segment := range strings.Split(outputKey, "/") {
+			if segment == ".." {
+				slog.Error("lambda output key contains path traversal", "trigger_id", job.trigger.ID, "key", outputKey)
+				return
+			}
+		}
+
 		contentType := resp.Header.Get("Content-Type")
 		if contentType == "" {
 			contentType = "application/octet-stream"

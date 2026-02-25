@@ -144,10 +144,30 @@ func (m *MetaCache) GetHead(bucket, key string) (int64, bool) {
 	return e.size, true
 }
 
+const maxMetaCacheEntries = 10000
+
 // PutHead caches a HEAD result.
 func (m *MetaCache) PutHead(bucket, key string, size int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Evict expired entries if cache is too large
+	if len(m.heads) >= maxMetaCacheEntries {
+		now := time.Now()
+		for k, e := range m.heads {
+			if now.After(e.expiry) {
+				delete(m.heads, k)
+			}
+		}
+		// If still too large after expired eviction, drop oldest
+		if len(m.heads) >= maxMetaCacheEntries {
+			for k := range m.heads {
+				delete(m.heads, k)
+				if len(m.heads) < maxMetaCacheEntries/2 {
+					break
+				}
+			}
+		}
+	}
 	m.heads[bucket+"/"+key] = &metaEntry{
 		size:   size,
 		expiry: time.Now().Add(m.headTTL),
@@ -171,10 +191,29 @@ func (m *MetaCache) GetList(bucket, prefix, delimiter string) ([]objectEntry, bo
 	return out, true
 }
 
+const maxListCacheEntries = 1000
+
 // PutList caches a LIST result.
 func (m *MetaCache) PutList(bucket, prefix, delimiter string, objects []objectEntry) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Evict expired entries if cache is too large
+	if len(m.lists) >= maxListCacheEntries {
+		now := time.Now()
+		for k, e := range m.lists {
+			if now.After(e.expiry) {
+				delete(m.lists, k)
+			}
+		}
+		if len(m.lists) >= maxListCacheEntries {
+			for k := range m.lists {
+				delete(m.lists, k)
+				if len(m.lists) < maxListCacheEntries/2 {
+					break
+				}
+			}
+		}
+	}
 	cp := make([]objectEntry, len(objects))
 	copy(cp, objects)
 	m.lists[bucket+":"+prefix+":"+delimiter] = &listCacheEntry{
@@ -211,6 +250,8 @@ var (
 	sigCacheEntries = make(map[sigCacheKey]sigCacheEntry)
 )
 
+const maxSigCacheEntries = 64
+
 // getCachedDerivedKey returns the HMAC derived key, recomputing only on date change.
 func getCachedDerivedKey(secret, datestamp, region, service string) []byte {
 	ck := sigCacheKey{secret, region}
@@ -218,6 +259,15 @@ func getCachedDerivedKey(secret, datestamp, region, service string) []byte {
 	defer sigCacheMu.Unlock()
 	if e, ok := sigCacheEntries[ck]; ok && e.datestamp == datestamp {
 		return e.key
+	}
+	// Evict oldest entries if cache is full
+	if len(sigCacheEntries) >= maxSigCacheEntries {
+		for k := range sigCacheEntries {
+			delete(sigCacheEntries, k)
+			if len(sigCacheEntries) < maxSigCacheEntries {
+				break
+			}
+		}
 	}
 	k := deriveKey(secret, datestamp, region, service)
 	sigCacheEntries[ck] = sigCacheEntry{datestamp: datestamp, key: k}

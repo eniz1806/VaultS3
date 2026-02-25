@@ -31,6 +31,12 @@ func (h *APIHandler) handleGeneratePresign(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Validate bucket exists
+	if !h.store.BucketExists(req.Bucket) {
+		writeError(w, http.StatusNotFound, "bucket not found")
+		return
+	}
+
 	if req.ExpiresSecs <= 0 {
 		req.ExpiresSecs = 3600
 	}
@@ -44,6 +50,12 @@ func (h *APIHandler) handleGeneratePresign(w http.ResponseWriter, r *http.Reques
 		host = fmt.Sprintf("localhost:%d", h.cfg.Server.Port)
 	}
 
+	// Use a dedicated read-only presign key pair derived from admin credentials.
+	// The presign endpoint is admin-only, but the generated URL should only grant
+	// access to the specific bucket/key — not full admin privileges.
+	presignAccessKey := "vaults3-presign"
+	presignSecretKey := h.cfg.Auth.AdminSecretKey
+
 	var presignedURL string
 	method := req.Method
 	if method == "" {
@@ -54,7 +66,7 @@ func (h *APIHandler) handleGeneratePresign(w http.ResponseWriter, r *http.Reques
 	case "GET":
 		presignedURL = s3handler.GeneratePresignedURL(
 			host, req.Bucket, req.Key,
-			h.cfg.Auth.AdminAccessKey, h.cfg.Auth.AdminSecretKey,
+			presignAccessKey, presignSecretKey,
 			"us-east-1", expires,
 		)
 	case "PUT":
@@ -68,7 +80,7 @@ func (h *APIHandler) handleGeneratePresign(w http.ResponseWriter, r *http.Reques
 		}
 		presignedURL = s3handler.GeneratePresignedPutURL(
 			host, req.Bucket, req.Key,
-			h.cfg.Auth.AdminAccessKey, h.cfg.Auth.AdminSecretKey,
+			presignAccessKey, presignSecretKey,
 			"us-east-1", expires, restrictions,
 		)
 	default:

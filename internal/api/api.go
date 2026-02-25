@@ -108,13 +108,16 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Admin-only routes: IAM, keys, STS, audit, backups, settings, lambda, presign
+	// Admin-only routes: IAM, keys, STS, audit, backups, settings, lambda, presign, replication, scanner, tiering
 	adminPaths := strings.HasPrefix(path, "/keys") ||
 		strings.HasPrefix(path, "/iam/") ||
 		strings.HasPrefix(path, "/sts/") ||
 		path == "/audit" ||
-		strings.HasPrefix(path, "/backups/trigger") ||
+		strings.HasPrefix(path, "/backups") ||
 		strings.HasPrefix(path, "/lambda/") ||
+		strings.HasPrefix(path, "/replication/") ||
+		strings.HasPrefix(path, "/scanner/") ||
+		strings.HasPrefix(path, "/tiering/") ||
 		path == "/settings" ||
 		path == "/presign"
 
@@ -434,30 +437,40 @@ func (h *APIHandler) routeBucket(w http.ResponseWriter, r *http.Request, rest st
 	}
 }
 
-// isAllowedOrigin checks if the request origin matches the server's own address.
-func (h *APIHandler) isAllowedOrigin(origin string, r *http.Request) bool {
+// isAllowedOrigin checks if the request origin matches the server's configured address.
+func (h *APIHandler) isAllowedOrigin(origin string, _ *http.Request) bool {
 	parsed, err := url.Parse(origin)
 	if err != nil {
 		return false
 	}
-	// Allow same-host origins (dashboard served from same server)
-	host := r.Host
-	if host == "" {
-		host = fmt.Sprintf("%s:%d", h.cfg.Server.Address, h.cfg.Server.Port)
-	}
+	// Build expected host from server config (not from request Host header which is attacker-controlled)
+	serverPort := fmt.Sprintf("%d", h.cfg.Server.Port)
 	originHost := parsed.Hostname()
-	if parsed.Port() != "" {
-		originHost = parsed.Hostname() + ":" + parsed.Port()
-	}
-	if originHost == host {
-		return true
-	}
-	// Allow localhost only on the same port as the server
-	if parsed.Hostname() == "localhost" || parsed.Hostname() == "127.0.0.1" {
-		serverPort := fmt.Sprintf("%d", h.cfg.Server.Port)
-		if parsed.Port() == serverPort || parsed.Port() == "" {
+	originPort := parsed.Port()
+
+	// Allow configured server address on server port
+	configAddr := h.cfg.Server.Address
+	if configAddr == "" || configAddr == "0.0.0.0" || configAddr == "::" {
+		// When bound to all interfaces, allow localhost and 127.0.0.1
+		if originHost == "localhost" || originHost == "127.0.0.1" {
+			if originPort == serverPort || originPort == "" {
+				return true
+			}
+		}
+	} else {
+		if originHost == configAddr && (originPort == serverPort || originPort == "") {
 			return true
 		}
+	}
+	// Also allow if server.domain is configured and matches
+	if h.cfg.Server.Domain != "" && originHost == h.cfg.Server.Domain {
+		if originPort == serverPort || originPort == "" {
+			return true
+		}
+	}
+	// Allow localhost on server port (always, for dev)
+	if (originHost == "localhost" || originHost == "127.0.0.1") && originPort == serverPort {
+		return true
 	}
 	return false
 }

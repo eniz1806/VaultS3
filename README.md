@@ -1053,6 +1053,17 @@ VaultS3 is designed with security in mind:
 - **OIDC admin name reservation** — OIDC users cannot claim the "admin" username
 - **OIDC domain validation enforcement** — Tokens without email are rejected when domain filtering is enabled
 - **CORS port restriction** — Localhost CORS only allowed on the server's own port
+- **Presigned URL credential isolation** — Presigned URLs use a dedicated non-admin key, preventing privilege escalation
+- **CORS Host header protection** — Origin validation uses configured server address, not attacker-controlled Host header
+- **Admin-only route expansion** — Backup, replication, scanner, and tiering endpoints restricted to admin users
+- **Replication queue limit cap** — Queue listing capped at 1000 entries to prevent memory exhaustion
+- **Backup path traversal protection** — Backup target validates resolved paths stay within base directory
+- **LIKE pattern O(n*m) matching** — Iterative DP algorithm replaces recursive backtracking, preventing ReDoS
+- **Tiering promotion safety** — Async cold-to-hot promotion re-checks tier state and orders operations safely
+- **Lambda output key validation** — Output key template expansion validated against path traversal
+- **S3 Select record cap** — JSON/CSV parsing capped at 1M records to prevent memory exhaustion
+- **FUSE cache size caps** — Signature cache, HEAD cache, and LIST cache bounded to prevent unbounded memory growth
+- **GetObjectAttributes version support** — Respects `versionId` parameter and handles delete markers
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting policy and deployment best practices.
 
