@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -10,9 +11,18 @@ import (
 	"github.com/eniz1806/VaultS3/internal/server"
 )
 
+var version = "dev"
+
 func main() {
+	showVersion := flag.Bool("version", false, "print version and exit")
+
 	configPath := flag.String("config", "configs/vaults3.yaml", "path to config file")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("vaults3 %s\n", version)
+		os.Exit(0)
+	}
 
 	// Load config
 	cfg, err := config.Load(*configPath)
