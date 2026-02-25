@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VaultS3 — Lightweight S3-Compatible Object Storage</title>
+  <meta name="description" content="Self-hosted S3-compatible object storage. Single binary, under 80MB RAM, built-in dashboard. The lightweight alternative to MinIO.">
+  <meta name="keywords" content="s3, object storage, self-hosted, minio alternative, golang, dashboard, lightweight">
+  <meta property="og:title" content="VaultS3 — Lightweight S3-Compatible Object Storage">
+  <meta property="og:description" content="Single binary, under 80MB RAM, built-in dashboard. The lightweight alternative to MinIO.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://raw.githubusercontent.com/eniz1806/VaultS3/main/assets/screenshots/dashboard-home-light.png">
+  <link rel="icon" type="image/svg+xml" href="https://raw.githubusercontent.com/eniz1806/VaultS3/main/assets/logo-dark.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #09090b;
+      --bg-subtle: #111114;
+      --bg-card: #18181b;
+      --bg-card-hover: #1f1f23;
+      --border: #27272a;
+      --border-subtle: #1e1e21;
+      --text: #fafafa;
+      --text-muted: #a1a1aa;
+      --text-dim: #71717a;
+      --primary: #818cf8;
+      --primary-bright: #a5b4fc;
+      --primary-dim: #6366f1;
+      --primary-glow: rgba(99, 102, 241, 0.15);
+      --green: #10b981;
+      --green-dim: #059669;
+      --green-glow: rgba(16, 185, 129, 0.12);
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Noise texture overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Animated gradient mesh background */
+    .gradient-bg {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      overflow: hidden;
+    }
+    .gradient-bg .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.3;
+      animation: float 20s ease-in-out infinite;
+    }
+    .gradient-bg .orb:nth-child(1) {
+      width: 600px; height: 600px;
+      background: var(--primary-dim);
+      top: -200px; left: -100px;
+      animation-delay: 0s;
+    }
+    .gradient-bg .orb:nth-child(2) {
+      width: 500px; height: 500px;
+      background: var(--green-dim);
+      bottom: -200px; right: -100px;
+      animation-delay: -7s;
+      animation-duration: 25s;
+    }
+    .gradient-bg .orb:nth-child(3) {
+      width: 400px; height: 400px;
+      background: #7c3aed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      animation-delay: -14s;
+      animation-duration: 30s;
+      opacity: 0.15;
+    }
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      25% { transform: translate(50px, -30px) scale(1.05); }
+      50% { transform: translate(-20px, 40px) scale(0.95); }
+      75% { transform: translate(30px, 20px) scale(1.02); }
+    }
+
+    /* Nav */
+    nav {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      z-index: 100;
+      padding: 0 24px;
+      transition: background 0.3s, border-color 0.3s, backdrop-filter 0.3s;
+    }
+    nav.scrolled {
+      background: rgba(9, 9, 11, 0.8);
+      backdrop-filter: blur(20px) saturate(1.5);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .nav-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 20px;
+      font-weight: 800;
+      text-decoration: none;
+      color: var(--text);
+      letter-spacing: -0.5px;
+    }
+    .nav-logo span { color: var(--primary); }
+    .nav-links { display: flex; gap: 32px; align-items: center; }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta {
+      background: var(--primary-dim) !important;
+      color: white !important;
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-weight: 600 !important;
+      transition: background 0.2s, transform 0.15s !important;
+    }
+    .nav-cta:hover { background: var(--primary) !important; transform: translateY(-1px); }
+
+    /* Sections */
+    section { position: relative; z-index: 1; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+    /* Hero */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      padding-top: 64px;
+    }
+    .hero-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      width: 100%;
+      padding: 80px 0 60px;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px 6px 8px;
+      border-radius: 100px;
+      background: var(--primary-glow);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--primary-bright);
+      margin-bottom: 32px;
+      animation: fadeInUp 0.6s ease-out;
+    }
+    .hero-badge .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
+    }
+    .hero h1 {
+      font-size: clamp(48px, 7vw, 80px);
+      font-weight: 900;
+      letter-spacing: -2px;
+      line-height: 1.05;
+      margin-bottom: 24px;
+      animation: fadeInUp 0.6s ease-out 0.1s both;
+    }
+    .hero h1 .gradient-text {
+      background: linear-gradient(135deg, var(--primary-bright), var(--primary), #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero .subtitle {
+      font-size: clamp(18px, 2.5vw, 22px);
+      color: var(--text-muted);
+      max-width: 640px;
+      margin-bottom: 40px;
+      line-height: 1.6;
+      animation: fadeInUp 0.6s ease-out 0.2s both;
+    }
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 24px;
+      animation: fadeInUp 0.6s ease-out 0.3s both;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+      border: none;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary-dim), #7c3aed);
+      color: white;
+      box-shadow: 0 0 30px rgba(99, 102, 241, 0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 50px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255,255,255,0.15);
+    }
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--text-dim);
+      transform: translateY(-2px);
+    }
+    .btn svg { width: 18px; height: 18px; }
+
+    /* Install command */
+    .install-cmd {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 20px;
+      font-family: var(--mono);
+      font-size: 14px;
+      margin-bottom: 60px;
+      animation: fadeInUp 0.6s ease-out 0.4s both;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .install-cmd:hover { border-color: var(--primary-dim); }
+    .install-cmd .prompt { color: var(--green); user-select: none; }
+    .install-cmd .text { color: var(--text-muted); }
+    .install-cmd .copy-btn {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 6px;
+      transition: color 0.2s, background 0.2s;
+      display: flex;
+    }
+    .install-cmd .copy-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+    /* Demo GIF */
+    .hero-demo {
+      width: 100%;
+      max-width: 1000px;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 25px 80px -20px rgba(0,0,0,0.6), 0 0 60px rgba(99, 102, 241, 0.08);
+      animation: fadeInUp 0.8s ease-out 0.5s both;
+      position: relative;
+    }
+    .hero-demo::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: 16px;
+      padding: 1px;
+      background: linear-gradient(135deg, rgba(99,102,241,0.3), transparent, rgba(16,185,129,0.2));
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+    }
+    .hero-demo img { width: 100%; display: block; }
+
+    /* Stats bar */
+    .stats-bar {
+      padding: 60px 0;
+      border-top: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(17, 17, 20, 0.5);
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 32px;
+      text-align: center;
+    }
+    .stat-item .stat-value {
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      background: linear-gradient(135deg, var(--text), var(--text-muted));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .stat-item .stat-value .accent {
+      -webkit-text-fill-color: var(--primary-bright);
+    }
+    .stat-item .stat-label {
+      font-size: 14px;
+      color: var(--text-dim);
+      margin-top: 4px;
+      font-weight: 500;
+    }
+
+    /* Features */
+    .features { padding: 120px 0; }
+    .section-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--primary);
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-size: clamp(32px, 4vw, 48px);
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin-bottom: 16px;
+      line-height: 1.15;
+    }
+    .section-subtitle {
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 600px;
+      line-height: 1.6;
+    }
+    .features-header {
+      text-align: center;
+      margin-bottom: 80px;
+    }
+    .features-header .section-subtitle { margin: 0 auto; }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--primary-dim), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .feature-card:hover {
+      border-color: rgba(99, 102, 241, 0.3);
+      transform: translateY(-4px);
+      box-shadow: 0 20px 40px -20px rgba(0,0,0,0.4);
+    }
+    .feature-card:hover::before { opacity: 1; }
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      font-size: 22px;
+    }
+    .feature-icon.purple { background: var(--primary-glow); }
+    .feature-icon.green { background: var(--green-glow); }
+    .feature-icon.amber { background: rgba(245, 158, 11, 0.12); }
+    .feature-card h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .feature-card p {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* Comparison */
+    .comparison { padding: 120px 0; }
+    .comparison-header { text-align: center; margin-bottom: 60px; }
+    .comparison-header .section-subtitle { margin: 0 auto; }
+    .table-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    thead th {
+      padding: 16px 20px;
+      text-align: center;
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+    thead th:first-child { text-align: left; }
+    thead th.highlight {
+      color: var(--primary-bright);
+      background: var(--primary-glow);
+      border-bottom-color: rgba(99, 102, 241, 0.2);
+    }
+    tbody td {
+      padding: 14px 20px;
+      text-align: center;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    tbody td:first-child {
+      text-align: left;
+      font-weight: 500;
+      color: var(--text);
+    }
+    tbody td.highlight {
+      color: var(--primary-bright);
+      font-weight: 600;
+      background: rgba(99, 102, 241, 0.04);
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: rgba(255,255,255,0.02); }
+    tbody tr:hover td.highlight { background: rgba(99, 102, 241, 0.07); }
+    .check { color: var(--green); }
+    .cross { color: var(--text-dim); opacity: 0.5; }
+
+    /* CTA */
+    .cta {
+      padding: 120px 0;
+      text-align: center;
+      position: relative;
+    }
+    .cta::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(99,102,241,0.12), transparent 70%);
+      pointer-events: none;
+    }
+    .cta-inner {
+      position: relative;
+      z-index: 1;
+    }
+    .cta .section-title { margin-bottom: 20px; }
+    .cta .section-subtitle {
+      margin: 0 auto 40px;
+      max-width: 500px;
+    }
+    .cta-code {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 700px;
+      margin: 0 auto 40px;
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 14px;
+      line-height: 1.8;
+      color: var(--text-muted);
+      overflow-x: auto;
+    }
+    .cta-code .comment { color: var(--text-dim); }
+    .cta-code .cmd { color: var(--green); }
+    .cta-code .flag { color: var(--primary-bright); }
+    .cta-code .val { color: var(--amber); }
+
+    /* Footer */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border-subtle);
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+    footer a { color: var(--text-muted); text-decoration: none; }
+    footer a:hover { color: var(--primary-bright); }
+    .footer-links { display: flex; gap: 24px; justify-content: center; margin-bottom: 16px; }
+
+    /* Animations */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .reveal {
+      opacity: 0;
+      transform: translateY(30px);
+      transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .nav-links a:not(.nav-cta) { display: none; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 24px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .stat-item .stat-value { font-size: 32px; }
+      .hero h1 { letter-spacing: -1px; }
+      .table-wrap { overflow-x: auto; }
+      table { min-width: 700px; }
+    }
+    @media (max-width: 480px) {
+      .hero-actions { flex-direction: column; align-items: center; }
+      .btn { width: 100%; justify-content: center; }
+      .install-cmd { flex-wrap: wrap; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="gradient-bg">
+  <div class="orb"></div>
+  <div class="orb"></div>
+  <div class="orb"></div>
+</div>
+
+<!-- Nav -->
+<nav id="nav">
+  <div class="nav-inner">
+    <a href="#" class="nav-logo">
+      <svg width="28" height="28" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M50 5 L90 20 L90 55 C90 78 72 95 50 100 C28 95 10 78 10 55 L10 20 Z" fill="#6366F1" stroke="#818CF8" stroke-width="2"/>
+        <rect x="33" y="45" width="34" height="28" rx="4" fill="#1E1B4B" stroke="#818CF8" stroke-width="1.5"/>
+        <path d="M38 45 L38 35 C38 27 43 22 50 22 C57 22 62 27 62 35 L62 45" fill="none" stroke="#1E1B4B" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="50" cy="56" r="4" fill="#A5B4FC"/>
+        <rect x="48.5" y="57" width="3" height="8" rx="1.5" fill="#A5B4FC"/>
+      </svg>
+      Vault<span>S3</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#comparison">Compare</a>
+      <a href="#quickstart">Install</a>
+      <a href="https://github.com/eniz1806/VaultS3" class="nav-cta">
+        <svg viewBox="0 0 16 16" fill="currentColor" style="width:16px;height:16px"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-inner">
+      <div class="hero-badge">
+        <span class="dot"></span>
+        Open source &middot; AGPL v3
+      </div>
+      <h1>
+        S3 Storage That<br>
+        <span class="gradient-text">Doesn't Eat RAM</span>
+      </h1>
+      <p class="subtitle">
+        Self-hosted S3-compatible object storage in a single binary.
+        Built-in dashboard, under 80MB RAM. The lightweight alternative to MinIO.
+      </p>
+      <div class="hero-actions">
+        <a href="https://github.com/eniz1806/VaultS3" class="btn btn-primary">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Star on GitHub
+        </a>
+        <a href="https://hub.docker.com/r/eniz1806/vaults3" class="btn btn-secondary">
+          <svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px"><path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.186.186 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.186.186 0 00-.185.185v1.888c0 .102.082.185.185.186m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.186.186 0 00-.185.185v1.887c0 .102.082.186.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.186.186 0 00-.185.185v1.887c0 .102.083.186.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.186.186 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.186.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.186.186 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.186.186 0 00.185-.185V9.006a.186.186 0 00-.185-.186H5.136a.186.186 0 00-.186.185v1.888c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.186.186v1.887c0 .102.084.185.186.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.687 11.687 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/></svg>
+          Docker Hub
+        </a>
+      </div>
+      <div class="install-cmd" onclick="copyInstall()" id="installCmd">
+        <span class="prompt">$</span>
+        <span class="text">docker pull eniz1806/vaults3</span>
+        <button class="copy-btn" title="Copy to clipboard">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </button>
+      </div>
+      <div class="hero-demo">
+        <img src="https://raw.githubusercontent.com/eniz1806/VaultS3/main/assets/demo.gif" alt="VaultS3 Dashboard Demo" loading="lazy">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Stats -->
+<section class="stats-bar">
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat-item reveal">
+        <div class="stat-value">50<span class="accent">+</span></div>
+        <div class="stat-label">S3 Operations</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-value">&lt;80<span class="accent">MB</span></div>
+        <div class="stat-label">RAM Usage</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-value">~10<span class="accent">MB</span></div>
+        <div class="stat-label">Binary Size</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-value">133<span class="accent">+</span></div>
+        <div class="stat-label">Test Cases</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="features-header reveal">
+      <div class="section-label">Features</div>
+      <h2 class="section-title">Everything You Need,<br>Nothing You Don't</h2>
+      <p class="section-subtitle">
+        Full S3 compatibility with a built-in dashboard, security hardening, and features that competitors charge enterprise pricing for.
+      </p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card reveal">
+        <div class="feature-icon purple">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+        </div>
+        <h3>Built-in Dashboard</h3>
+        <p>React-based web UI embedded in the binary. File browser, IAM management, audit trail, search, dark mode. No separate web server.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon green">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h3>5 Rounds of Security</h3>
+        <p>60+ security fixes. AES-256-GCM encryption, SigV4 auth, path traversal protection, SSRF prevention, rate limiting, CSP headers.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon amber">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+        </div>
+        <h3>S3 Select (SQL)</h3>
+        <p>Query CSV and JSON objects with SQL without downloading. SELECT, WHERE, LIKE, AND/OR, LIMIT — right from the S3 API.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon purple">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12l2 2 4-4"/></svg>
+        </div>
+        <h3>Object Versioning & WORM</h3>
+        <p>Per-bucket versioning with git-like diff viewer. Legal hold and retention (GOVERNANCE/COMPLIANCE). One-click rollback.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon green">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <h3>FUSE Mount</h3>
+        <p>Mount any bucket as a local directory. LRU block cache, metadata caching, SigV4 auth. Read and write support built-in.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon amber">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </div>
+        <h3>Lambda Triggers</h3>
+        <p>Invoke external functions on S3 events. Webhook-based with event filtering, optional response storage. Worker pool dispatch.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon purple">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        </div>
+        <h3>IAM & OIDC/SSO</h3>
+        <p>Users, groups, and policies with S3-compatible policy evaluation. OIDC login with Google, Keycloak, Auth0. Role mapping.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon green">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <h3>Full-text Search</h3>
+        <p>Search across all buckets by key, content type, and tags. In-memory index with LRU eviction cap and incremental updates.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon amber">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
+        </div>
+        <h3>Event Notifications</h3>
+        <p>Webhooks, Kafka, NATS, and Redis backends. Per-bucket event filtering with key prefix/suffix matching. Virus scanning support.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Comparison -->
+<section class="comparison" id="comparison">
+  <div class="container">
+    <div class="comparison-header reveal">
+      <div class="section-label">Comparison</div>
+      <h2 class="section-title">How VaultS3 Stacks Up</h2>
+      <p class="section-subtitle">Feature-by-feature comparison with popular S3-compatible storage solutions.</p>
+    </div>
+    <div class="table-wrap reveal">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th class="highlight">VaultS3</th>
+            <th>MinIO</th>
+            <th>SeaweedFS</th>
+            <th>Garage</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>RAM (small deploy)</td>
+            <td class="highlight">&lt; 80 MB</td>
+            <td>512 MB+</td>
+            <td>50-200 MB</td>
+            <td>50-150 MB</td>
+          </tr>
+          <tr>
+            <td>Single binary</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="check">&#10003;</span></td>
+          </tr>
+          <tr>
+            <td>Web dashboard</td>
+            <td class="highlight"><span class="check">&#10003;</span> Built-in</td>
+            <td><span class="check">&#10003;</span> Built-in</td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Object versioning</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>WORM / Object lock</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>S3 Select (SQL)</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>FUSE mount</td>
+            <td class="highlight"><span class="check">&#10003;</span> Built-in</td>
+            <td><span class="cross">&#10005;</span></td>
+            <td>Buggy</td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Full-text search</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Version diff / tags</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Lambda triggers</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Virus scanning</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Rate limiting</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td>Paid</td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>OIDC / SSO</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Binary size</td>
+            <td class="highlight">~10 MB</td>
+            <td>~100 MB</td>
+            <td>~40 MB</td>
+            <td>~20 MB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- CTA / Quick Start -->
+<section class="cta" id="quickstart">
+  <div class="container">
+    <div class="cta-inner reveal">
+      <div class="section-label">Get Started</div>
+      <h2 class="section-title">Up and Running in 30 Seconds</h2>
+      <p class="section-subtitle">One command. That's it. No databases, no dependencies, no configuration files.</p>
+      <div class="cta-code">
+        <span class="comment"># Pull and run with Docker</span><br>
+        <span class="cmd">docker run</span> <span class="flag">-d</span> \<br>
+        &nbsp;&nbsp;<span class="flag">--name</span> <span class="val">vaults3</span> \<br>
+        &nbsp;&nbsp;<span class="flag">-p</span> <span class="val">9000:9000</span> \<br>
+        &nbsp;&nbsp;<span class="flag">-e</span> <span class="val">VAULTS3_ACCESS_KEY=myadmin</span> \<br>
+        &nbsp;&nbsp;<span class="flag">-e</span> <span class="val">VAULTS3_SECRET_KEY=mysupersecret</span> \<br>
+        &nbsp;&nbsp;<span class="flag">-v</span> <span class="val">vaults3-data:/data</span> \<br>
+        &nbsp;&nbsp;<span class="flag">-v</span> <span class="val">vaults3-meta:/metadata</span> \<br>
+        &nbsp;&nbsp;<span class="val">eniz1806/vaults3</span><br><br>
+        <span class="comment"># S3 API    &rarr; http://localhost:9000</span><br>
+        <span class="comment"># Dashboard &rarr; http://localhost:9000/dashboard/</span><br>
+        <span class="comment"># Metrics   &rarr; http://localhost:9000/metrics</span>
+      </div>
+      <div class="hero-actions">
+        <a href="https://github.com/eniz1806/VaultS3" class="btn btn-primary">
+          <svg viewBox="0 0 16 16" fill="currentColor" style="width:18px;height:18px"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          View on GitHub
+        </a>
+        <a href="https://hub.docker.com/r/eniz1806/vaults3" class="btn btn-secondary">
+          Read the Docs
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <div class="footer-links">
+      <a href="https://github.com/eniz1806/VaultS3">GitHub</a>
+      <a href="https://hub.docker.com/r/eniz1806/vaults3">Docker Hub</a>
+      <a href="https://github.com/eniz1806/VaultS3/blob/main/LICENSE">License</a>
+      <a href="https://github.com/eniz1806/VaultS3/blob/main/SECURITY.md">Security</a>
+      <a href="https://github.com/eniz1806/VaultS3/issues">Issues</a>
+    </div>
+    <p>VaultS3 is open source under the <a href="https://github.com/eniz1806/VaultS3/blob/main/LICENSE">AGPL v3</a> license.</p>
+  </div>
+</footer>
+
+<script>
+  // Scroll nav effect
+  const nav = document.getElementById('nav');
+  window.addEventListener('scroll', () => {
+    nav.classList.toggle('scrolled', window.scrollY > 20);
+  });
+
+  // Reveal on scroll
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // Copy install command
+  function copyInstall() {
+    navigator.clipboard.writeText('docker pull eniz1806/vaults3');
+    const cmd = document.getElementById('installCmd');
+    const text = cmd.querySelector('.text');
+    const orig = text.textContent;
+    text.textContent = 'Copied!';
+    text.style.color = '#10b981';
+    setTimeout(() => { text.textContent = orig; text.style.color = ''; }, 1500);
+  }
+</script>
+
+</body>
+</html>
