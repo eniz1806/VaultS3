@@ -29,6 +29,13 @@
 
 ---
 
+<p align="center">
+  <img src="assets/screenshots/dashboard-home-light.png" alt="VaultS3 Dashboard" width="720">
+</p>
+<p align="center"><em>Built-in web dashboard with dark mode, file browser, search, IAM, and more</em></p>
+
+---
+
 ## Why VaultS3?
 
 **MinIO** needs 512MB+ RAM and locks features like per-bucket rate limiting behind a paid enterprise tier. **SeaweedFS** requires multiple components with no web UI. **Garage** lacks versioning, WORM, and notifications entirely.
@@ -315,6 +322,20 @@ The built-in dashboard is available at `http://localhost:9000/dashboard/`. Login
 - JWT-based authentication (24h tokens)
 
 The dashboard is embedded into the binary — no separate web server needed.
+
+#### Screenshots
+
+| Buckets | File Browser |
+|:---:|:---:|
+| ![Buckets](assets/screenshots/dashboard-buckets.png) | ![File Browser](assets/screenshots/dashboard-file-browser.png) |
+
+| Bucket Detail | Search |
+|:---:|:---:|
+| ![Bucket Detail](assets/screenshots/dashboard-bucket-detail.png) | ![Search](assets/screenshots/dashboard-search.png) |
+
+| Dark Mode | Settings |
+|:---:|:---:|
+| ![Dark Mode](assets/screenshots/dashboard-home-dark.png) | ![Settings](assets/screenshots/dashboard-settings.png) |
 
 ### Health Checks
 
