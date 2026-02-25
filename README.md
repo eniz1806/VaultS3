@@ -30,9 +30,8 @@
 ---
 
 <p align="center">
-  <img src="assets/screenshots/dashboard-home-light.png" alt="VaultS3 Dashboard" width="720">
+  <img src="assets/demo.gif" alt="VaultS3 Dashboard Demo" width="800">
 </p>
-<p align="center"><em>Built-in web dashboard with dark mode, file browser, search, IAM, and more</em></p>
 
 ---
 
