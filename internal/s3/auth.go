@@ -96,10 +96,11 @@ func (a *Authenticator) resolveIdentity(accessKey string) (*iam.Identity, string
 				if user, err := a.store.GetIAMUser(userID); err == nil {
 					identity.AllowedCIDRs = user.AllowedCIDRs
 				}
-			} else {
-				// Keys without a linked user get no special access (default deny)
-				// They can only access resources allowed by public-read policies
 			}
+
+			// Keys without policies are denied by default (least privilege).
+			// Key creation auto-generates IAM user + policy, so this
+			// only affects manually created keys with no IAM setup.
 			return identity, key.SecretKey, nil
 		}
 	}
