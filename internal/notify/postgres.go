@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+
+	_ "github.com/lib/pq" // PostgreSQL driver
 )
 
 // PostgresBackend publishes notifications to a PostgreSQL table.

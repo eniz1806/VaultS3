@@ -162,13 +162,15 @@ type ReplicationConfig struct {
 }
 
 type NotificationsConfig struct {
-	MaxWorkers  int               `yaml:"max_workers"`
-	QueueSize   int               `yaml:"queue_size"`
-	TimeoutSecs int               `yaml:"timeout_secs"`
-	MaxRetries  int               `yaml:"max_retries"`
-	Kafka       KafkaNotifyConfig `yaml:"kafka"`
-	NATS        NATSNotifyConfig  `yaml:"nats"`
-	Redis       RedisNotifyConfig `yaml:"redis"`
+	MaxWorkers  int                  `yaml:"max_workers"`
+	QueueSize   int                  `yaml:"queue_size"`
+	TimeoutSecs int                  `yaml:"timeout_secs"`
+	MaxRetries  int                  `yaml:"max_retries"`
+	Kafka       KafkaNotifyConfig    `yaml:"kafka"`
+	NATS        NATSNotifyConfig     `yaml:"nats"`
+	Redis       RedisNotifyConfig    `yaml:"redis"`
+	AMQP        AMQPNotifyConfig     `yaml:"amqp"`
+	Postgres    PostgresNotifyConfig `yaml:"postgres"`
 }
 
 type KafkaNotifyConfig struct {
@@ -188,6 +190,19 @@ type RedisNotifyConfig struct {
 	Addr    string `yaml:"addr"`
 	Channel string `yaml:"channel"`
 	ListKey string `yaml:"list_key"`
+}
+
+type AMQPNotifyConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	URL        string `yaml:"url"`
+	Exchange   string `yaml:"exchange"`
+	RoutingKey string `yaml:"routing_key"`
+}
+
+type PostgresNotifyConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	ConnStr string `yaml:"conn_str"`
+	Table   string `yaml:"table"`
 }
 
 type SecurityConfig struct {
@@ -224,8 +239,18 @@ type AuthConfig struct {
 }
 
 type EncryptionConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Key     string `yaml:"key"` // hex-encoded 32-byte key (64 hex chars)
+	Enabled bool                `yaml:"enabled"`
+	Key     string              `yaml:"key"` // hex-encoded 32-byte key (64 hex chars) for SSE-S3
+	KMS     KMSEncryptionConfig `yaml:"kms"` // SSE-KMS configuration
+}
+
+type KMSEncryptionConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Provider   string `yaml:"provider"` // "vault" or "local"
+	VaultAddr  string `yaml:"vault_addr"`
+	VaultToken string `yaml:"vault_token"`
+	KeyName    string `yaml:"key_name"`
+	LocalKey   string `yaml:"local_key"` // hex-encoded fallback key
 }
 
 type CompressionConfig struct {

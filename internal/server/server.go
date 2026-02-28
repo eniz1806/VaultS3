@@ -80,18 +80,40 @@ func New(cfg *config.Config) (*Server, error) {
 		slog.Info("compression enabled", "algorithm", "gzip")
 	}
 
-	// Wrap with encryption if enabled
+	// Wrap with encryption if enabled (SSE-S3 or SSE-KMS)
 	if cfg.Encryption.Enabled {
-		keyBytes, err := cfg.Encryption.KeyBytes()
-		if err != nil {
-			return nil, fmt.Errorf("encryption config: %w", err)
+		if cfg.Encryption.KMS.Enabled {
+			// SSE-KMS: use KMS for key management
+			kms := storage.NewKMS(storage.KMSConfig{
+				Provider:   cfg.Encryption.KMS.Provider,
+				VaultAddr:  cfg.Encryption.KMS.VaultAddr,
+				VaultToken: cfg.Encryption.KMS.VaultToken,
+				KeyName:    cfg.Encryption.KMS.KeyName,
+				LocalKey:   cfg.Encryption.KMS.LocalKey,
+			})
+			keyName := cfg.Encryption.KMS.KeyName
+			if keyName == "" {
+				keyName = "vaults3-default"
+			}
+			enc, err := storage.NewKMSEncryptedEngine(engine, kms, keyName)
+			if err != nil {
+				return nil, fmt.Errorf("init KMS encryption: %w", err)
+			}
+			engine = enc
+			slog.Info("SSE-KMS encryption enabled", "provider", cfg.Encryption.KMS.Provider, "key", keyName)
+		} else {
+			// SSE-S3: static key
+			keyBytes, err := cfg.Encryption.KeyBytes()
+			if err != nil {
+				return nil, fmt.Errorf("encryption config: %w", err)
+			}
+			enc, err := storage.NewEncryptedEngine(engine, keyBytes)
+			if err != nil {
+				return nil, fmt.Errorf("init encryption: %w", err)
+			}
+			engine = enc
+			slog.Info("SSE-S3 encryption enabled", "algorithm", "AES-256-GCM")
 		}
-		enc, err := storage.NewEncryptedEngine(engine, keyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("init encryption: %w", err)
-		}
-		engine = enc
-		slog.Info("encryption at rest enabled", "algorithm", "AES-256-GCM")
 	}
 
 	// Wrap with erasure coding if enabled
@@ -312,6 +334,17 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 	if nc.Redis.Enabled && nc.Redis.Addr != "" {
 		notifyDispatcher.AddBackend(notify.NewRedisBackend(nc.Redis.Addr, nc.Redis.Channel, nc.Redis.ListKey))
+	}
+	if nc.AMQP.Enabled && nc.AMQP.URL != "" {
+		notifyDispatcher.AddBackend(notify.NewAMQPBackend(nc.AMQP.URL, nc.AMQP.Exchange, nc.AMQP.RoutingKey))
+	}
+	if nc.Postgres.Enabled && nc.Postgres.ConnStr != "" {
+		pgBackend, err := notify.NewPostgresBackend(nc.Postgres.ConnStr, nc.Postgres.Table)
+		if err != nil {
+			slog.Warn("PostgreSQL notification backend failed", "error", err)
+		} else {
+			notifyDispatcher.AddBackend(pgBackend)
+		}
 	}
 
 	s3h.SetNotificationFunc(func(eventType, bucket, key string, size int64, etag, versionID string) {

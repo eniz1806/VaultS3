@@ -14,8 +14,8 @@
   <a href="https://github.com/eniz1806/VaultS3/actions"><img src="https://github.com/eniz1806/VaultS3/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://hub.docker.com/r/eniz1806/vaults3"><img src="https://img.shields.io/docker/pulls/eniz1806/vaults3?logo=docker&logoColor=white&color=2496ED" alt="Docker Pulls"></a>
   <a href="https://github.com/eniz1806/VaultS3/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL_v3-4F46E5" alt="License"></a>
-  <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
-  <a href="https://github.com/eniz1806/VaultS3"><img src="https://img.shields.io/badge/S3_Operations-75+-10B981" alt="S3 Ops"></a>
+  <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
+  <a href="https://github.com/eniz1806/VaultS3"><img src="https://img.shields.io/badge/S3_Operations-80+-10B981" alt="S3 Ops"></a>
 </p>
 
 <p align="center">
@@ -69,11 +69,11 @@ make build && ./vaults3
 - **Low memory** — Targets <80MB RAM (vs MinIO's 300-500MB)
 - **BoltDB metadata** — Embedded key-value store, no external database needed
 - **S3 Signature V4** — Standard AWS authentication
-- **AES-256-GCM encryption at rest** — Optional server-side encryption with SSE headers
+- **AES-256-GCM encryption at rest** — SSE-S3 (static key) and SSE-KMS (HashiCorp Vault or local key provider) encryption modes
 - **Bucket policies** — Public-read, private, custom S3-compatible JSON policies
 - **Quota management** — Per-bucket size and object count limits
 - **Rate limiting** — Token bucket rate limiter per client IP and per access key to prevent abuse
-- **S3 Select** — Execute SQL queries on CSV and JSON objects without downloading the full file
+- **S3 Select** — Execute SQL queries on CSV, JSON, and Parquet objects without downloading the full file
 - **Multipart upload** — Full lifecycle (Create, UploadPart, UploadPartCopy, Complete, Abort, ListUploads, ListParts)
 - **Bucket tagging** — S3-compatible tag sets with PUT/GET/DELETE
 - **Bucket/Object ACL** — S3-compatible ACL responses (GET/PUT)
@@ -102,7 +102,7 @@ make build && ./vaults3
 - **STS temporary credentials** — Short-lived access keys with configurable TTL, auto-cleanup of expired keys
 - **Audit trail** — Persistent audit log with filtering by user, bucket, time range; auto-pruning via lifecycle worker
 - **IP allowlist/blocklist** — Global and per-user CIDR-based IP restrictions with IPv4/IPv6 support
-- **S3 event notifications** — Per-bucket webhook notifications on object mutations with event type and key prefix/suffix filtering, plus Kafka, NATS, and Redis backends
+- **S3 event notifications** — Per-bucket webhook notifications on object mutations with event type and key prefix/suffix filtering, plus Kafka, NATS, Redis, AMQP/RabbitMQ, PostgreSQL, and Elasticsearch backends
 - **Raft clustering** — Multi-node cluster with Hashicorp Raft consensus for strongly consistent distributed metadata, automatic leader election, and node join/leave via HTTP API
 - **Consistent hashing** — xxhash64-based hash ring with virtual nodes for automatic data placement and request routing across cluster nodes via reverse proxy
 - **Erasure coding** — Reed-Solomon encoding (configurable data/parity shards) for disk-failure protection with background healer that auto-reconstructs degraded objects
@@ -333,7 +333,14 @@ auth:
 
 encryption:
   enabled: false
-  key: ""  # 64-character hex string (32 bytes) when enabled
+  key: ""  # 64-character hex string (32 bytes) for SSE-S3
+  kms:     # SSE-KMS (optional, overrides static key when enabled)
+    enabled: false
+    provider: "vault"          # "vault" or "local"
+    vault_addr: ""
+    vault_token: ""
+    key_name: "vaults3-dek"
+    local_key: ""
 
 compression:
   enabled: false
@@ -401,14 +408,31 @@ replication:
 
 ### Encryption at Rest
 
-Enable AES-256-GCM encryption by setting `encryption.enabled: true` and providing a 32-byte hex key:
+VaultS3 supports two encryption modes:
 
-```bash
-# Generate a key
-openssl rand -hex 32
+**SSE-S3 (Static Key)** — Simple setup with a hex-encoded 32-byte key:
+
+```yaml
+encryption:
+  enabled: true
+  key: ""  # 64-char hex string: openssl rand -hex 32
 ```
 
-When enabled, all objects are encrypted on disk with a random nonce per object. SSE headers (`x-amz-server-side-encryption: AES256`) are included in responses.
+**SSE-KMS (Key Management Service)** — Per-object encryption with KMS-managed data encryption keys:
+
+```yaml
+encryption:
+  enabled: true
+  kms:
+    enabled: true
+    provider: "vault"          # "vault" (HashiCorp Vault) or "local" (fallback)
+    vault_addr: "http://vault:8200"
+    vault_token: "hvs.xxx"
+    key_name: "vaults3-dek"    # Transit engine key name
+    local_key: ""              # hex-encoded fallback key (when provider: "local")
+```
+
+SSE-KMS fetches data encryption keys from HashiCorp Vault's Transit engine, caches them in memory, and supports key rotation. All objects are encrypted with AES-256-GCM using a random nonce per object.
 
 ### Virtual-Hosted Style URLs
 
@@ -1103,7 +1127,7 @@ Supported SQL features:
 - `LIMIT N`
 - Column references: `name`, `s3object.name`, `s.name`, `_1` (positional for CSV without headers)
 
-Input formats: CSV (with/without headers, custom delimiters), JSON Lines, JSON Document (array).
+Input formats: CSV (with/without headers, custom delimiters), JSON Lines, JSON Document (array), Parquet (columnar format via parquet-go).
 Compressed input: GZIP and BZIP2 compressed CSV/JSON files are transparently decompressed before query execution.
 Output formats: JSON (one object per line) or CSV.
 
@@ -1196,7 +1220,7 @@ VaultS3 is designed with security in mind:
 - **SSRF prevention** — webhook, lambda, and notification URLs blocked from targeting localhost, private IPs, and cloud metadata endpoints
 - **Upload size limits** — 5GB per PUT (S3 spec), enforced with `http.MaxBytesReader`
 - **Rate limiting** — per-IP token bucket using `RemoteAddr` (not spoofable via `X-Forwarded-For`)
-- **AES-256-GCM encryption at rest** — optional, with SSE headers
+- **AES-256-GCM encryption at rest** — SSE-S3 (static key) and SSE-KMS (HashiCorp Vault / local key) modes
 - **IAM with default-deny** — policy evaluation engine with wildcard matching
 - **Security headers** — CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
 - **Non-root Docker** — container runs as `vaults3` user (UID 1000)
@@ -1287,11 +1311,11 @@ VaultS3/
 - **Tailwind CSS** — Dashboard styling
 - **BoltDB** — Embedded key-value store for metadata
 - **Local filesystem** — Object storage backend
-- **AES-256-GCM** — Server-side encryption (optional)
+- **AES-256-GCM** — Server-side encryption (SSE-S3 and SSE-KMS with HashiCorp Vault)
 
 ## Requirements
 
-- Go 1.21+ (build)
+- Go 1.25+ (build)
 - Node.js 18+ (dashboard build only)
 - No runtime dependencies
 
@@ -1436,6 +1460,10 @@ VaultS3/
 - [x] S3 Inventory reports (periodic CSV)
 - [x] Snowball/TAR bulk upload
 - [x] FIFO quota (delete oldest objects when quota exceeded)
-- [x] AMQP/RabbitMQ notification backend
-- [x] PostgreSQL notification backend
+- [x] AMQP/RabbitMQ notification backend (amqp091-go client with lazy connection and topic exchange)
+- [x] PostgreSQL notification backend (lib/pq driver, auto-create table, JSONB storage)
 - [x] Elasticsearch notification backend
+- [x] SSE-KMS encryption (HashiCorp Vault Transit engine + local key provider, key rotation, per-object AES-256-GCM)
+- [x] S3 Select on Parquet files (parquet-go, row group iteration, columnar to record conversion)
+- [x] Integration test suite (26 end-to-end tests with real SigV4 signing, filesystem storage, BoltDB metadata)
+- [x] Race detection in CI (`go test -race`)

@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"bytes"
 	"compress/bzip2"
 	"compress/gzip"
 	"encoding/csv"
@@ -12,6 +13,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/parquet-go/parquet-go"
 )
 
 const maxSelectSize int64 = 256 * 1024 * 1024
@@ -94,8 +97,10 @@ func (h *ObjectHandler) SelectObjectContent(w http.ResponseWriter, r *http.Reque
 		records, err = parseCSVInput(dataReader, req.InputSerialization.CSV)
 	} else if req.InputSerialization.JSON != nil {
 		records, err = parseJSONInput(dataReader, req.InputSerialization.JSON)
+	} else if req.InputSerialization.Parquet != nil {
+		records, err = parseParquetInput(dataReader)
 	} else {
-		writeS3Error(w, "InvalidArgument", "InputSerialization must specify CSV or JSON", http.StatusBadRequest)
+		writeS3Error(w, "InvalidArgument", "InputSerialization must specify CSV, JSON, or Parquet", http.StatusBadRequest)
 		return
 	}
 	if err != nil {
@@ -158,10 +163,13 @@ type selectRequest struct {
 }
 
 type inputSerialization struct {
-	CompressionType string     `xml:"CompressionType"` // NONE, GZIP, BZIP2
-	CSV             *csvInput  `xml:"CSV"`
-	JSON            *jsonInput `xml:"JSON"`
+	CompressionType string        `xml:"CompressionType"` // NONE, GZIP, BZIP2
+	CSV             *csvInput     `xml:"CSV"`
+	JSON            *jsonInput    `xml:"JSON"`
+	Parquet         *parquetInput `xml:"Parquet"`
 }
+
+type parquetInput struct{}
 
 type csvInput struct {
 	FileHeaderInfo  string `xml:"FileHeaderInfo"` // USE, IGNORE, NONE
@@ -675,4 +683,59 @@ func sortStrings(s []string) {
 			}
 		}
 	}
+}
+
+// parseParquetInput reads a Parquet file and converts it to records.
+func parseParquetInput(reader io.Reader) ([]map[string]string, error) {
+	// Parquet requires random access, so read all data into memory
+	data, err := io.ReadAll(io.LimitReader(reader, maxSelectSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read parquet data: %w", err)
+	}
+	if int64(len(data)) > maxSelectSize {
+		return nil, fmt.Errorf("Parquet input exceeds maximum size")
+	}
+
+	file, err := parquet.OpenFile(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("open parquet file: %w", err)
+	}
+
+	schema := file.Schema()
+	fields := schema.Fields()
+	colNames := make([]string, len(fields))
+	for i, f := range fields {
+		colNames[i] = f.Name()
+	}
+
+	var records []map[string]string
+	for _, rg := range file.RowGroups() {
+		rows := rg.NumRows()
+		if int64(len(records))+rows > int64(maxSelectRecords) {
+			return nil, fmt.Errorf("too many records (max %d)", maxSelectRecords)
+		}
+
+		rowBuf := make([]parquet.Row, 256)
+		rowReader := rg.Rows()
+		defer rowReader.Close()
+
+		for {
+			n, err := rowReader.ReadRows(rowBuf)
+			for i := 0; i < n; i++ {
+				rec := make(map[string]string, len(colNames))
+				for _, v := range rowBuf[i] {
+					col := v.Column()
+					if col >= 0 && col < len(colNames) {
+						rec[colNames[col]] = fmt.Sprintf("%v", v)
+					}
+				}
+				records = append(records, rec)
+			}
+			if err != nil {
+				break
+			}
+		}
+	}
+
+	return records, nil
 }
