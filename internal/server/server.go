@@ -22,8 +22,8 @@ import (
 	"github.com/eniz1806/VaultS3/internal/backup"
 	"github.com/eniz1806/VaultS3/internal/cluster"
 	"github.com/eniz1806/VaultS3/internal/config"
-	"github.com/eniz1806/VaultS3/internal/erasure"
 	"github.com/eniz1806/VaultS3/internal/dashboard"
+	"github.com/eniz1806/VaultS3/internal/erasure"
 	"github.com/eniz1806/VaultS3/internal/lambda"
 	"github.com/eniz1806/VaultS3/internal/lifecycle"
 	"github.com/eniz1806/VaultS3/internal/metadata"
@@ -40,23 +40,23 @@ import (
 )
 
 type Server struct {
-	cfg           *config.Config
-	store         *metadata.Store
-	engine        storage.Engine
-	s3h           *s3.Handler
-	metrics       *metrics.Collector
-	activity      *api.ActivityLog
-	accessLog     *accesslog.AccessLogger
-	notifyDisp    *notify.Dispatcher
-	replWorker    *replication.Worker
-	biDirWorker   *replication.BiDirectionalWorker
-	searchIndex   *search.Index
-	scanWorker    *scanner.Scanner
-	tieringMgr    *tiering.Manager
-	backupSched   *backup.Scheduler
-	rateLimiter   *ratelimit.Limiter
-	lambdaMgr     *lambda.TriggerManager
-	accessUpdater *metadata.AccessUpdater
+	cfg             *config.Config
+	store           *metadata.Store
+	engine          storage.Engine
+	s3h             *s3.Handler
+	metrics         *metrics.Collector
+	activity        *api.ActivityLog
+	accessLog       *accesslog.AccessLogger
+	notifyDisp      *notify.Dispatcher
+	replWorker      *replication.Worker
+	biDirWorker     *replication.BiDirectionalWorker
+	searchIndex     *search.Index
+	scanWorker      *scanner.Scanner
+	tieringMgr      *tiering.Manager
+	backupSched     *backup.Scheduler
+	rateLimiter     *ratelimit.Limiter
+	lambdaMgr       *lambda.TriggerManager
+	accessUpdater   *metadata.AccessUpdater
 	clusterNode     *cluster.Node
 	clusterProxy    *cluster.Proxy
 	failoverProxy   *cluster.FailoverProxy
@@ -456,23 +456,23 @@ func New(cfg *config.Config) (*Server, error) {
 	initBuiltinPolicies(store)
 
 	return &Server{
-		cfg:           cfg,
-		store:         store,
-		engine:        engine,
-		s3h:           s3h,
-		metrics:       mc,
-		activity:      activityLog,
-		accessLog:     accessLogger,
-		notifyDisp:    notifyDispatcher,
-		replWorker:    replWorker,
-		biDirWorker:   biDirWorker,
-		searchIndex:   searchIdx,
-		scanWorker:    scanWorker,
-		tieringMgr:    tieringMgr,
-		backupSched:   backupSched,
-		rateLimiter:   rateLimiter,
-		lambdaMgr:     lambdaMgr,
-		accessUpdater: accessUpdater,
+		cfg:             cfg,
+		store:           store,
+		engine:          engine,
+		s3h:             s3h,
+		metrics:         mc,
+		activity:        activityLog,
+		accessLog:       accessLogger,
+		notifyDisp:      notifyDispatcher,
+		replWorker:      replWorker,
+		biDirWorker:     biDirWorker,
+		searchIndex:     searchIdx,
+		scanWorker:      scanWorker,
+		tieringMgr:      tieringMgr,
+		backupSched:     backupSched,
+		rateLimiter:     rateLimiter,
+		lambdaMgr:       lambdaMgr,
+		accessUpdater:   accessUpdater,
 		clusterNode:     clusterNode,
 		clusterProxy:    clusterProxy,
 		failoverProxy:   failoverProxy,

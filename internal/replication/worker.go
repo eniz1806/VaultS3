@@ -45,11 +45,11 @@ func validatePeerURL(rawURL string) error {
 
 // ReplicationEvent is sent via the event channel for real-time replication.
 type RealtimeEvent struct {
-	Type    string // "put" or "delete"
-	Bucket  string
-	Key     string
-	Size    int64
-	ETag    string
+	Type   string // "put" or "delete"
+	Bucket string
+	Key    string
+	Size   int64
+	ETag   string
 }
 
 // Worker handles async replication to peer VaultS3 instances.

@@ -7,6 +7,8 @@ server:
     enabled: false
     cert_file: ""
     key_file: ""
+  internode_address: ""    # separate bind address for inter-node traffic (empty = disabled)
+  internode_port: 0        # separate port for inter-node traffic (0 = disabled)
 
 storage:
   data_dir: "./data"
@@ -55,10 +57,27 @@ notifications:
     addr: "localhost:6379"
     channel: "vaults3-events"
     list_key: ""        # set to use LPUSH queue mode instead of pub/sub
+  amqp:
+    enabled: false
+    url: "amqp://guest:guest@localhost:5672/"
+    exchange: "vaults3-events"
+    routing_key: "s3.events"
+  postgres:
+    enabled: false
+    connection_string: "postgres://user:pass@localhost:5432/vaults3?sslmode=disable"
+    table: "s3_events"
+  elasticsearch:
+    enabled: false
+    url: "http://localhost:9200"
+    index: "s3-events"
 
 replication:
   enabled: false
-  peers: []            # list of {name, url, access_key, secret_key}
+  mode: "push"             # "push" (one-way) or "active-active" (bidirectional)
+  site_id: "site-1"        # unique site ID for active-active mode
+  conflict_strategy: "last-writer-wins"  # "last-writer-wins", "largest-object", "site-preference"
+  preferred_site: ""       # for site-preference strategy
+  peers: []                # list of {name, url, access_key, secret_key}
   scan_interval_secs: 30
   max_retries: 5
   batch_size: 100
@@ -111,5 +130,52 @@ lambda:
 memory:
   max_search_entries: 50000    # max objects in search index (LRU eviction)
   go_mem_limit_mb: 0           # Go runtime memory limit (0 = unlimited)
+
+# Erasure coding (optional, works with or without clustering)
+erasure:
+  enabled: false
+  data_shards: 4
+  parity_shards: 2
+  block_size: 4194304          # 4MB, objects smaller than this bypass EC
+  data_dirs: []                # multiple disk paths for shard distribution
+  heal_interval_secs: 300      # seconds between heal scans
+
+# Distributed clustering (optional)
+cluster:
+  enabled: false
+  node_id: "node-1"
+  bind_addr: "0.0.0.0"
+  raft_port: 9001
+  api_port: 9000               # API port for this node
+  bootstrap: true              # true for the first node
+  peers: []                    # ["node-2@host2:9001", "node-3@host3:9001"]
+  peer_apis: {}                # nodeID → "host:apiPort" for proxying
+  placement:
+    replica_count: 3
+    read_quorum: 2
+    write_quorum: 2
+    virtual_nodes: 128
+  detector:
+    probe_interval_secs: 5
+    suspect_after: 3
+    down_after: 6
+    probe_timeout_secs: 3
+  rebalance:
+    max_bandwidth_mbps: 50
+    batch_size: 100
+
+# S3 Inventory reports (optional)
+# inventory:
+#   enabled: false
+#   dest_bucket: ""            # destination bucket for reports (empty = same bucket)
+#   schedule: "daily"          # "daily" or "weekly"
+#   include_versions: false
+
+# Auto-TLS (optional, alternative to manual TLS config)
+# auto_tls:
+#   enabled: false
+#   domains: []                # domains for Let's Encrypt certificates
+#   cache_dir: "autocert-cache"
+#   self_signed: false         # use self-signed cert (for development)
 
 debug: false                   # enable /debug/pprof/* endpoints

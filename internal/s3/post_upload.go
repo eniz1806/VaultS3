@@ -207,4 +207,3 @@ func validatePostCondition(raw json.RawMessage, r *http.Request) error {
 
 	return nil
 }
-

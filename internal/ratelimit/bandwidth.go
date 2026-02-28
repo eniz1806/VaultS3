@@ -8,8 +8,8 @@ import (
 
 // BandwidthLimiter throttles read/write throughput per bucket.
 type BandwidthLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*bwBucket
+	mu                 sync.Mutex
+	buckets            map[string]*bwBucket
 	defaultBytesPerSec int64
 }
 

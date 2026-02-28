@@ -21,16 +21,16 @@ import (
 
 // APIHandler serves the dashboard REST API at /api/v1/.
 type APIHandler struct {
-	store       *metadata.Store
-	engine      storage.Engine
-	metrics     *metrics.Collector
-	cfg         *config.Config
-	jwt         *JWTService
-	activity    *ActivityLog
-	searchIndex *search.Index
-	scanner     *scanner.Scanner
-	tieringMgr  *tiering.Manager
-	backupSched *backup.Scheduler
+	store            *metadata.Store
+	engine           storage.Engine
+	metrics          *metrics.Collector
+	cfg              *config.Config
+	jwt              *JWTService
+	activity         *ActivityLog
+	searchIndex      *search.Index
+	scanner          *scanner.Scanner
+	tieringMgr       *tiering.Manager
+	backupSched      *backup.Scheduler
 	rateLimiter      *ratelimit.Limiter
 	oidc             *OIDCValidator
 	lambdaMgr        *lambda.TriggerManager

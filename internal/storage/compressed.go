@@ -25,7 +25,7 @@ var excludedExtensions = map[string]bool{
 // Uses gzip compression. Data is compressed before writing and decompressed after reading.
 // Files with already-compressed extensions are passed through without compression.
 type CompressedEngine struct {
-	inner        Engine
+	inner         Engine
 	ExcludedTypes map[string]bool // additional excluded extensions
 }
 

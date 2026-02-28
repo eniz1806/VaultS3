@@ -9,12 +9,12 @@ import (
 
 // ClusterStatus is the response for the /cluster/status endpoint.
 type ClusterStatus struct {
-	NodeID    string       `json:"node_id"`
-	State     string       `json:"state"` // Leader, Follower, Candidate
-	Leader    string       `json:"leader"`
-	LeaderID  string       `json:"leader_id"`
-	Servers   []ServerInfo `json:"servers"`
-	Stats     map[string]string `json:"stats"`
+	NodeID   string            `json:"node_id"`
+	State    string            `json:"state"` // Leader, Follower, Candidate
+	Leader   string            `json:"leader"`
+	LeaderID string            `json:"leader_id"`
+	Servers  []ServerInfo      `json:"servers"`
+	Stats    map[string]string `json:"stats"`
 }
 
 // ServerInfo describes a single cluster member.

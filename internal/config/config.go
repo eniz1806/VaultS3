@@ -42,19 +42,19 @@ type ErasureConfig struct {
 }
 
 type ClusterConfig struct {
-	Enabled       bool            `yaml:"enabled"`
-	NodeID        string          `yaml:"node_id"`
-	BindAddr      string          `yaml:"bind_addr"`
-	RaftPort      int             `yaml:"raft_port"`
-	APIPort       int             `yaml:"api_port"`  // API port for this node (for proxy, defaults to server.port)
-	Peers         []string        `yaml:"peers"`     // Raft peers: "nodeID@host:raftPort"
+	Enabled       bool              `yaml:"enabled"`
+	NodeID        string            `yaml:"node_id"`
+	BindAddr      string            `yaml:"bind_addr"`
+	RaftPort      int               `yaml:"raft_port"`
+	APIPort       int               `yaml:"api_port"`  // API port for this node (for proxy, defaults to server.port)
+	Peers         []string          `yaml:"peers"`     // Raft peers: "nodeID@host:raftPort"
 	PeerAPIs      map[string]string `yaml:"peer_apis"` // nodeID → "host:apiPort" for proxying
-	Bootstrap     bool            `yaml:"bootstrap"`
-	DataDir       string          `yaml:"data_dir"`
-	SnapshotCount int             `yaml:"snapshot_count"`
-	Placement     PlacementConfig  `yaml:"placement"`
-	Detector      DetectorConfig   `yaml:"detector"`
-	Rebalance     RebalanceConfig  `yaml:"rebalance"`
+	Bootstrap     bool              `yaml:"bootstrap"`
+	DataDir       string            `yaml:"data_dir"`
+	SnapshotCount int               `yaml:"snapshot_count"`
+	Placement     PlacementConfig   `yaml:"placement"`
+	Detector      DetectorConfig    `yaml:"detector"`
+	Rebalance     RebalanceConfig   `yaml:"rebalance"`
 }
 
 type PlacementConfig struct {

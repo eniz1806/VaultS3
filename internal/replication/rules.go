@@ -2,14 +2,14 @@ package replication
 
 // ReplicationRule defines a per-bucket replication rule.
 type ReplicationRule struct {
-	ID          string            `json:"id" xml:"ID"`
-	Status      string            `json:"status" xml:"Status"`                       // "Enabled" or "Disabled"
-	Priority    int               `json:"priority,omitempty" xml:"Priority,omitempty"`
-	Prefix      string            `json:"prefix,omitempty" xml:"Filter>Prefix,omitempty"`
-	TagFilter   map[string]string `json:"tag_filter,omitempty"`
-	Destination RuleDestination   `json:"destination" xml:"Destination"`
-	DeleteMarkerReplication string `json:"delete_marker_replication,omitempty" xml:"DeleteMarkerReplication>Status,omitempty"` // "Enabled" or "Disabled"
-	ExistingObjectReplication string `json:"existing_object_replication,omitempty" xml:"ExistingObjectReplication>Status,omitempty"`
+	ID                        string            `json:"id" xml:"ID"`
+	Status                    string            `json:"status" xml:"Status"` // "Enabled" or "Disabled"
+	Priority                  int               `json:"priority,omitempty" xml:"Priority,omitempty"`
+	Prefix                    string            `json:"prefix,omitempty" xml:"Filter>Prefix,omitempty"`
+	TagFilter                 map[string]string `json:"tag_filter,omitempty"`
+	Destination               RuleDestination   `json:"destination" xml:"Destination"`
+	DeleteMarkerReplication   string            `json:"delete_marker_replication,omitempty" xml:"DeleteMarkerReplication>Status,omitempty"` // "Enabled" or "Disabled"
+	ExistingObjectReplication string            `json:"existing_object_replication,omitempty" xml:"ExistingObjectReplication>Status,omitempty"`
 }
 
 // RuleDestination specifies where to replicate.

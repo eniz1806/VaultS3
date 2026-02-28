@@ -14,9 +14,9 @@ type LDAPConfig struct {
 	BindDN         string            `json:"bind_dn" yaml:"bind_dn"`
 	BindPassword   string            `json:"bind_password" yaml:"bind_password"`
 	BaseDN         string            `json:"base_dn" yaml:"base_dn"`
-	UserFilter     string            `json:"user_filter" yaml:"user_filter"` // e.g. "(uid=%s)"
-	GroupAttr       string            `json:"group_attr" yaml:"group_attr"` // e.g. "memberOf"
-	GroupPolicyMap  map[string]string `json:"group_policy_map" yaml:"group_policy_map"` // group DN → policy name
+	UserFilter     string            `json:"user_filter" yaml:"user_filter"`           // e.g. "(uid=%s)"
+	GroupAttr      string            `json:"group_attr" yaml:"group_attr"`             // e.g. "memberOf"
+	GroupPolicyMap map[string]string `json:"group_policy_map" yaml:"group_policy_map"` // group DN → policy name
 	TLSSkipVerify  bool              `json:"tls_skip_verify" yaml:"tls_skip_verify"`
 	StartTLS       bool              `json:"start_tls" yaml:"start_tls"`
 }

@@ -45,7 +45,7 @@ type BiDirectionalWorker struct {
 	client    *http.Client
 
 	// Track the last-seen sequence per remote peer
-	mu         sync.Mutex
+	mu          sync.Mutex
 	peerCursors map[string]uint64 // peerName → last synced seq from that peer
 }
 

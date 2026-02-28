@@ -215,11 +215,11 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 	now := time.Now().UTC()
 
 	h.store.PutObjectMeta(metadata.ObjectMeta{
-		Bucket:       bucket,
-		Key:          key,
-		ContentType:  upload.ContentType,
-		ETag:         etag,
-		Size:         totalSize,
+		Bucket:         bucket,
+		Key:            key,
+		ContentType:    upload.ContentType,
+		ETag:           etag,
+		Size:           totalSize,
 		LastModified:   now.Unix(),
 		PartsCount:     len(req.Parts),
 		PartBoundaries: partBoundaries,

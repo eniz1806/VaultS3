@@ -20,9 +20,9 @@ type ChangeEntry struct {
 type ConflictStrategy string
 
 const (
-	StrategyLastWriterWins  ConflictStrategy = "last-writer-wins"
-	StrategyLargestObject   ConflictStrategy = "largest-object"
-	StrategySitePreference  ConflictStrategy = "site-preference"
+	StrategyLastWriterWins ConflictStrategy = "last-writer-wins"
+	StrategyLargestObject  ConflictStrategy = "largest-object"
+	StrategySitePreference ConflictStrategy = "site-preference"
 )
 
 // ConflictResolver picks a winner when two concurrent writes conflict.

@@ -12,11 +12,11 @@ const defaultVnodes = 128
 
 // HashRing implements consistent hashing with virtual nodes.
 type HashRing struct {
-	mu       sync.RWMutex
-	vnodes   int
-	ring     []uint64       // sorted hash values
-	nodeMap  map[uint64]string // hash → nodeID
-	nodes    map[string]bool   // set of nodeIDs
+	mu      sync.RWMutex
+	vnodes  int
+	ring    []uint64          // sorted hash values
+	nodeMap map[uint64]string // hash → nodeID
+	nodes   map[string]bool   // set of nodeIDs
 }
 
 // NewHashRing creates a hash ring with the given number of virtual nodes per physical node.

@@ -15,9 +15,9 @@ import (
 type NodeState int
 
 const (
-	NodeHealthy     NodeState = iota
-	NodeSuspect               // missed heartbeats but not yet declared down
-	NodeDown                  // confirmed down after threshold
+	NodeHealthy NodeState = iota
+	NodeSuspect           // missed heartbeats but not yet declared down
+	NodeDown              // confirmed down after threshold
 )
 
 func (s NodeState) String() string {
@@ -35,25 +35,25 @@ func (s NodeState) String() string {
 
 // NodeHealth tracks health info for a single node.
 type NodeHealth struct {
-	NodeID        string    `json:"node_id"`
-	Addr          string    `json:"addr"`
-	State         NodeState `json:"state"`
-	LastSeen      time.Time `json:"last_seen"`
-	FailCount     int       `json:"fail_count"`
-	LastError     string    `json:"last_error,omitempty"`
+	NodeID    string    `json:"node_id"`
+	Addr      string    `json:"addr"`
+	State     NodeState `json:"state"`
+	LastSeen  time.Time `json:"last_seen"`
+	FailCount int       `json:"fail_count"`
+	LastError string    `json:"last_error,omitempty"`
 }
 
 // FailureDetector monitors cluster nodes via periodic health probes.
 type FailureDetector struct {
-	mu             sync.RWMutex
-	nodes          map[string]*NodeHealth // nodeID → health
-	selfID         string
-	probInterval   time.Duration
-	suspectAfter   int // consecutive failures before suspect
-	downAfter      int // consecutive failures before down
-	client         *http.Client
-	onNodeDown     func(nodeID string) // callback when node transitions to down
-	onNodeRecover  func(nodeID string) // callback when node recovers
+	mu            sync.RWMutex
+	nodes         map[string]*NodeHealth // nodeID → health
+	selfID        string
+	probInterval  time.Duration
+	suspectAfter  int // consecutive failures before suspect
+	downAfter     int // consecutive failures before down
+	client        *http.Client
+	onNodeDown    func(nodeID string) // callback when node transitions to down
+	onNodeRecover func(nodeID string) // callback when node recovers
 }
 
 // DetectorConfig is an alias for config.DetectorConfig.

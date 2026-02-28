@@ -60,10 +60,10 @@ func (vc VectorClock) Merge(other VectorClock) VectorClock {
 type Ordering int
 
 const (
-	Equal      Ordering = iota
-	HappenedBefore       // vc < other
-	HappenedAfter        // vc > other
-	Concurrent           // neither dominates
+	Equal          Ordering = iota
+	HappenedBefore          // vc < other
+	HappenedAfter           // vc > other
+	Concurrent              // neither dominates
 )
 
 // Compare determines the causal ordering between two vector clocks.

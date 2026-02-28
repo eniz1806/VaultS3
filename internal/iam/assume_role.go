@@ -9,11 +9,11 @@ import (
 
 // Role represents an IAM role that can be assumed.
 type Role struct {
-	Name        string   `json:"name"`
-	ARN         string   `json:"arn"`
-	PolicyARNs  []string `json:"policy_arns"`
-	TrustPolicy Policy   `json:"trust_policy"`
-	MaxDuration int      `json:"max_duration_secs,omitempty"` // default 3600
+	Name        string    `json:"name"`
+	ARN         string    `json:"arn"`
+	PolicyARNs  []string  `json:"policy_arns"`
+	TrustPolicy Policy    `json:"trust_policy"`
+	MaxDuration int       `json:"max_duration_secs,omitempty"` // default 3600
 	CreatedAt   time.Time `json:"created_at"`
 }
 

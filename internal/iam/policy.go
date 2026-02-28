@@ -10,12 +10,12 @@ type Policy struct {
 
 // Statement represents a single policy statement.
 type Statement struct {
-	Effect      string                          `json:"Effect"`
-	Action      []string                        `json:"Action"`
-	Resource    []string                        `json:"Resource"`
-	Condition   map[string]map[string][]string  `json:"Condition,omitempty"`
-	NotAction   []string                        `json:"NotAction,omitempty"`
-	NotResource []string                        `json:"NotResource,omitempty"`
+	Effect      string                         `json:"Effect"`
+	Action      []string                       `json:"Action"`
+	Resource    []string                       `json:"Resource"`
+	Condition   map[string]map[string][]string `json:"Condition,omitempty"`
+	NotAction   []string                       `json:"NotAction,omitempty"`
+	NotResource []string                       `json:"NotResource,omitempty"`
 }
 
 // Evaluate checks all statements against an action and resource.
