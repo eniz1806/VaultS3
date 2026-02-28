@@ -26,8 +26,54 @@ type Config struct {
 	RateLimit     RateLimitConfig     `yaml:"rate_limit"`
 	OIDC          OIDCConfig          `yaml:"oidc"`
 	Lambda        LambdaConfig        `yaml:"lambda"`
+	Erasure       ErasureConfig       `yaml:"erasure"`
+	Cluster       ClusterConfig       `yaml:"cluster"`
 	Memory        MemoryConfig        `yaml:"memory"`
 	Debug         bool                `yaml:"debug"`
+}
+
+type ErasureConfig struct {
+	Enabled      bool     `yaml:"enabled"`
+	DataShards   int      `yaml:"data_shards"`
+	ParityShards int      `yaml:"parity_shards"`
+	BlockSize    int64    `yaml:"block_size"`
+	DataDirs     []string `yaml:"data_dirs"`
+	HealInterval int      `yaml:"heal_interval_secs"`
+}
+
+type ClusterConfig struct {
+	Enabled       bool            `yaml:"enabled"`
+	NodeID        string          `yaml:"node_id"`
+	BindAddr      string          `yaml:"bind_addr"`
+	RaftPort      int             `yaml:"raft_port"`
+	APIPort       int             `yaml:"api_port"`  // API port for this node (for proxy, defaults to server.port)
+	Peers         []string        `yaml:"peers"`     // Raft peers: "nodeID@host:raftPort"
+	PeerAPIs      map[string]string `yaml:"peer_apis"` // nodeID → "host:apiPort" for proxying
+	Bootstrap     bool            `yaml:"bootstrap"`
+	DataDir       string          `yaml:"data_dir"`
+	SnapshotCount int             `yaml:"snapshot_count"`
+	Placement     PlacementConfig  `yaml:"placement"`
+	Detector      DetectorConfig   `yaml:"detector"`
+	Rebalance     RebalanceConfig  `yaml:"rebalance"`
+}
+
+type PlacementConfig struct {
+	ReplicaCount int `yaml:"replica_count"`
+	ReadQuorum   int `yaml:"read_quorum"`
+	WriteQuorum  int `yaml:"write_quorum"`
+	VirtualNodes int `yaml:"virtual_nodes"`
+}
+
+type DetectorConfig struct {
+	ProbeIntervalSecs int `yaml:"probe_interval_secs"`
+	SuspectAfter      int `yaml:"suspect_after"`
+	DownAfter         int `yaml:"down_after"`
+	ProbeTimeoutSecs  int `yaml:"probe_timeout_secs"`
+}
+
+type RebalanceConfig struct {
+	MaxBandwidthMBps int `yaml:"max_bandwidth_mbps"`
+	BatchSize        int `yaml:"batch_size"`
 }
 
 type MemoryConfig struct {
@@ -105,6 +151,10 @@ type ReplicationPeer struct {
 
 type ReplicationConfig struct {
 	Enabled          bool              `yaml:"enabled"`
+	Mode             string            `yaml:"mode"`              // "push" (default) or "active-active"
+	SiteID           string            `yaml:"site_id"`           // unique identifier for this site (active-active)
+	ConflictStrategy string            `yaml:"conflict_strategy"` // "last-writer-wins", "largest-object", "site-preference"
+	PreferredSite    string            `yaml:"preferred_site"`    // for site-preference strategy
 	Peers            []ReplicationPeer `yaml:"peers"`
 	ScanIntervalSecs int               `yaml:"scan_interval_secs"`
 	MaxRetries       int               `yaml:"max_retries"`
@@ -334,6 +384,20 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("VAULTS3_LOG_LEVEL"); v != "" {
 		cfg.Logging.Level = v
+	}
+	if v := os.Getenv("VAULTS3_CLUSTER_NODE_ID"); v != "" {
+		cfg.Cluster.NodeID = v
+	}
+	if v := os.Getenv("VAULTS3_CLUSTER_BIND_ADDR"); v != "" {
+		cfg.Cluster.BindAddr = v
+	}
+	if v := os.Getenv("VAULTS3_CLUSTER_RAFT_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.Cluster.RaftPort = p
+		}
+	}
+	if v := os.Getenv("VAULTS3_CLUSTER_DATA_DIR"); v != "" {
+		cfg.Cluster.DataDir = v
 	}
 }
 

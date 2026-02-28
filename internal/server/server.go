@@ -20,7 +20,9 @@ import (
 	"github.com/eniz1806/VaultS3/internal/accesslog"
 	"github.com/eniz1806/VaultS3/internal/api"
 	"github.com/eniz1806/VaultS3/internal/backup"
+	"github.com/eniz1806/VaultS3/internal/cluster"
 	"github.com/eniz1806/VaultS3/internal/config"
+	"github.com/eniz1806/VaultS3/internal/erasure"
 	"github.com/eniz1806/VaultS3/internal/dashboard"
 	"github.com/eniz1806/VaultS3/internal/lambda"
 	"github.com/eniz1806/VaultS3/internal/lifecycle"
@@ -47,6 +49,7 @@ type Server struct {
 	accessLog     *accesslog.AccessLogger
 	notifyDisp    *notify.Dispatcher
 	replWorker    *replication.Worker
+	biDirWorker   *replication.BiDirectionalWorker
 	searchIndex   *search.Index
 	scanWorker    *scanner.Scanner
 	tieringMgr    *tiering.Manager
@@ -54,6 +57,12 @@ type Server struct {
 	rateLimiter   *ratelimit.Limiter
 	lambdaMgr     *lambda.TriggerManager
 	accessUpdater *metadata.AccessUpdater
+	clusterNode     *cluster.Node
+	clusterProxy    *cluster.Proxy
+	failoverProxy   *cluster.FailoverProxy
+	failureDetector *cluster.FailureDetector
+	rebalancer      *cluster.Rebalancer
+	ecHealer        *erasure.Healer
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -85,6 +94,24 @@ func New(cfg *config.Config) (*Server, error) {
 		slog.Info("encryption at rest enabled", "algorithm", "AES-256-GCM")
 	}
 
+	// Wrap with erasure coding if enabled
+	var ecEngine *erasure.Engine
+	var ecHealer *erasure.Healer
+	if cfg.Erasure.Enabled {
+		ec, err := erasure.NewEngine(engine, cfg.Erasure)
+		if err != nil {
+			return nil, fmt.Errorf("init erasure coding: %w", err)
+		}
+		ecEngine = ec
+		engine = ec
+		slog.Info("erasure coding enabled",
+			"data_shards", cfg.Erasure.DataShards,
+			"parity_shards", cfg.Erasure.ParityShards,
+			"block_size", cfg.Erasure.BlockSize,
+			"extra_dirs", len(cfg.Erasure.DataDirs),
+		)
+	}
+
 	// Initialize metadata store
 	metaDir := cfg.Storage.MetadataDir
 	if err := os.MkdirAll(metaDir, 0755); err != nil {
@@ -93,6 +120,94 @@ func New(cfg *config.Config) (*Server, error) {
 	store, err := metadata.NewStore(filepath.Join(metaDir, "vaults3.db"))
 	if err != nil {
 		return nil, fmt.Errorf("init metadata: %w", err)
+	}
+
+	// Initialize erasure healer if EC is enabled
+	if ecEngine != nil {
+		healInterval := cfg.Erasure.HealInterval
+		if healInterval <= 0 {
+			healInterval = 3600
+		}
+		ecHealer = erasure.NewHealer(store, ecEngine, healInterval)
+	}
+
+	// Initialize cluster if enabled
+	var clusterNode *cluster.Node
+	var clusterProxy *cluster.Proxy
+	if cfg.Cluster.Enabled {
+		node, err := cluster.NewNode(cfg.Cluster, store)
+		if err != nil {
+			store.Close()
+			return nil, fmt.Errorf("init cluster: %w", err)
+		}
+		clusterNode = node
+
+		// Build hash ring from configured peers + self
+		vnodes := cfg.Cluster.Placement.VirtualNodes
+		if vnodes <= 0 {
+			vnodes = 128
+		}
+		ring := cluster.NewHashRing(vnodes)
+		ring.AddNode(cfg.Cluster.NodeID)
+
+		// Build peer API address map
+		nodeAddrs := make(map[string]string)
+		apiPort := cfg.Cluster.APIPort
+		if apiPort == 0 {
+			apiPort = cfg.Server.Port
+		}
+		nodeAddrs[cfg.Cluster.NodeID] = fmt.Sprintf("%s:%d", cfg.Cluster.BindAddr, apiPort)
+
+		// Add peers to ring and address map
+		for _, peer := range cfg.Cluster.Peers {
+			nodeID, _, ok := cluster.ParsePeer(peer)
+			if !ok {
+				continue
+			}
+			ring.AddNode(nodeID)
+		}
+		// Explicit peer API addresses override auto-derived ones
+		for nodeID, addr := range cfg.Cluster.PeerAPIs {
+			nodeAddrs[nodeID] = addr
+			if !ring.HasNode(nodeID) {
+				ring.AddNode(nodeID)
+			}
+		}
+
+		clusterProxy = cluster.NewProxy(ring, node, cfg.Cluster.Placement, nodeAddrs)
+		slog.Info("cluster mode enabled",
+			"node_id", cfg.Cluster.NodeID,
+			"ring_nodes", ring.NodeCount(),
+			"replica_count", cfg.Cluster.Placement.ReplicaCount,
+		)
+	}
+
+	// Initialize failure detector and failover proxy if cluster is enabled
+	var failureDetector *cluster.FailureDetector
+	var failoverProxy *cluster.FailoverProxy
+	var rebalancer *cluster.Rebalancer
+	if clusterNode != nil && clusterProxy != nil {
+		// Failure detector
+		failureDetector = cluster.NewFailureDetector(cfg.Cluster.NodeID, cfg.Cluster.Detector)
+		for nodeID, addr := range clusterProxy.NodeAddrs() {
+			failureDetector.AddNode(nodeID, addr)
+		}
+
+		// Failover proxy wraps the basic proxy with failure awareness
+		failoverProxy = cluster.NewFailoverProxy(clusterProxy, failureDetector)
+
+		// Wire callbacks: node down/recover → failover + rebalance
+		rebalancer = cluster.NewRebalancer(store, engine, clusterProxy.Ring(), clusterProxy, cfg.Cluster.NodeID, cfg.Cluster.Rebalance)
+		failureDetector.SetCallbacks(
+			func(nodeID string) {
+				failoverProxy.OnNodeDown(nodeID)
+				rebalancer.Trigger()
+			},
+			func(nodeID string) {
+				failoverProxy.OnNodeRecover(nodeID)
+				rebalancer.Trigger()
+			},
+		)
 	}
 
 	// Initialize S3 authenticator
@@ -107,6 +222,22 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize S3 handler
 	s3h := s3.NewHandler(store, engine, auth, cfg.Encryption.Enabled, cfg.Server.Domain, mc)
+
+	// Wire cluster proxy into S3 handler (use failover proxy if available)
+	if failoverProxy != nil {
+		s3h.SetClusterProxy(func(w http.ResponseWriter, r *http.Request, bucket, key string) bool {
+			return failoverProxy.ForwardWithRetry(w, r, bucket, key)
+		})
+	} else if clusterProxy != nil {
+		s3h.SetClusterProxy(func(w http.ResponseWriter, r *http.Request, bucket, key string) bool {
+			targetNode := clusterProxy.ShouldProxy(bucket, key)
+			if targetNode == "" {
+				return false
+			}
+			clusterProxy.ForwardRequest(w, r, targetNode)
+			return true
+		})
+	}
 
 	// Initialize access logger if enabled
 	var accessLogger *accesslog.AccessLogger
@@ -189,31 +320,63 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize replication worker if enabled
 	var replWorker *replication.Worker
+	var biDirWorker *replication.BiDirectionalWorker
 	if cfg.Replication.Enabled && len(cfg.Replication.Peers) > 0 {
-		replWorker = replication.NewWorker(store, engine, cfg.Replication)
-		s3h.SetReplicationFunc(func(eventType, bucket, key string, size int64, etag, versionID string) {
-			evtType := "put"
-			if eventType == "s3:ObjectRemoved:Delete" {
-				evtType = "delete"
-			}
-			for _, peer := range cfg.Replication.Peers {
-				store.EnqueueReplication(metadata.ReplicationEvent{
-					Type:   evtType,
-					Bucket: bucket,
-					Key:    key,
-					ETag:   etag,
-					Peer:   peer.Name,
-					Size:   size,
-				})
-			}
-		})
 		// Register peer access keys so replication header is only trusted from peers
 		var peerKeys []string
 		for _, peer := range cfg.Replication.Peers {
 			peerKeys = append(peerKeys, peer.AccessKey)
 		}
 		s3h.SetReplicationPeerKeys(peerKeys)
-		slog.Info("replication enabled", "peers", len(cfg.Replication.Peers), "interval_secs", cfg.Replication.ScanIntervalSecs)
+
+		if cfg.Replication.Mode == "active-active" {
+			// Active-active bidirectional replication
+			biDirWorker = replication.NewBiDirectionalWorker(store, engine, cfg.Replication)
+			changeLog := biDirWorker.ChangeLog()
+			siteID := biDirWorker.SiteID()
+			s3h.SetReplicationFunc(func(eventType, bucket, key string, size int64, etag, versionID string) {
+				evtType := "put"
+				if eventType == "s3:ObjectRemoved:Delete" {
+					evtType = "delete"
+				}
+				vc := replication.NewVectorClock()
+				vc.Increment(siteID)
+				// Also store the vector clock on the object metadata
+				if meta, err := store.GetObjectMeta(bucket, key); err == nil {
+					existingVC, _ := replication.ParseVectorClock(meta.VectorClock)
+					vc = existingVC.Merge(vc)
+					vc.Increment(siteID)
+					meta.VectorClock = vc.Bytes()
+					store.PutObjectMeta(*meta)
+				}
+				changeLog.Record(bucket, key, evtType, etag, size, vc)
+			})
+			slog.Info("active-active replication enabled",
+				"site_id", siteID,
+				"peers", len(cfg.Replication.Peers),
+				"conflict_strategy", cfg.Replication.ConflictStrategy,
+			)
+		} else {
+			// Traditional push-based replication
+			replWorker = replication.NewWorker(store, engine, cfg.Replication)
+			s3h.SetReplicationFunc(func(eventType, bucket, key string, size int64, etag, versionID string) {
+				evtType := "put"
+				if eventType == "s3:ObjectRemoved:Delete" {
+					evtType = "delete"
+				}
+				for _, peer := range cfg.Replication.Peers {
+					store.EnqueueReplication(metadata.ReplicationEvent{
+						Type:   evtType,
+						Bucket: bucket,
+						Key:    key,
+						ETag:   etag,
+						Peer:   peer.Name,
+						Size:   size,
+					})
+				}
+			})
+			slog.Info("push replication enabled", "peers", len(cfg.Replication.Peers), "interval_secs", cfg.Replication.ScanIntervalSecs)
+		}
 	}
 
 	// Build search index
@@ -302,6 +465,7 @@ func New(cfg *config.Config) (*Server, error) {
 		accessLog:     accessLogger,
 		notifyDisp:    notifyDispatcher,
 		replWorker:    replWorker,
+		biDirWorker:   biDirWorker,
 		searchIndex:   searchIdx,
 		scanWorker:    scanWorker,
 		tieringMgr:    tieringMgr,
@@ -309,6 +473,12 @@ func New(cfg *config.Config) (*Server, error) {
 		rateLimiter:   rateLimiter,
 		lambdaMgr:     lambdaMgr,
 		accessUpdater: accessUpdater,
+		clusterNode:     clusterNode,
+		clusterProxy:    clusterProxy,
+		failoverProxy:   failoverProxy,
+		failureDetector: failureDetector,
+		rebalancer:      rebalancer,
+		ecHealer:        ecHealer,
 	}, nil
 }
 
@@ -371,6 +541,20 @@ func (s *Server) Run() error {
 		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 		slog.Info("pprof debug endpoints enabled at /debug/pprof/")
+	}
+
+	// Register cluster endpoints if enabled
+	if s.clusterNode != nil {
+		mux.HandleFunc("/cluster/status", s.clusterNode.StatusHandler())
+		mux.HandleFunc("/cluster/join", s.clusterNode.JoinHandler())
+		mux.HandleFunc("/cluster/leave", s.clusterNode.LeaveHandler())
+		slog.Info("cluster endpoints registered", "paths", []string{"/cluster/status", "/cluster/join", "/cluster/leave"})
+	}
+
+	// Register bidirectional replication sync endpoint
+	if s.biDirWorker != nil {
+		mux.HandleFunc("/_replication/sync", s.biDirWorker.HandleSyncRequest)
+		slog.Info("bidirectional replication sync endpoint registered", "path", "/_replication/sync")
 	}
 
 	mux.Handle("/", s.s3h)
@@ -443,6 +627,13 @@ func (s *Server) Run() error {
 		go s.replWorker.Run(replCtx)
 	}
 
+	// Start bidirectional replication if enabled
+	if s.biDirWorker != nil {
+		biDirCtx, biDirCancel := context.WithCancel(context.Background())
+		defer biDirCancel()
+		go s.biDirWorker.Run(biDirCtx)
+	}
+
 	// Start scanner workers if enabled
 	if s.scanWorker != nil {
 		scanCtx, scanCancel := context.WithCancel(context.Background())
@@ -463,6 +654,20 @@ func (s *Server) Run() error {
 		defer lambdaCancel()
 		s.lambdaMgr.Start(lambdaCtx)
 		apiHandler.SetLambdaManager(s.lambdaMgr)
+	}
+
+	// Start failure detector if cluster is enabled
+	if s.failureDetector != nil {
+		detCtx, detCancel := context.WithCancel(context.Background())
+		defer detCancel()
+		go s.failureDetector.Run(detCtx)
+	}
+
+	// Start erasure healer if enabled
+	if s.ecHealer != nil {
+		ecCtx, ecCancel := context.WithCancel(context.Background())
+		defer ecCancel()
+		go s.ecHealer.Run(ecCtx)
 	}
 
 	// Start backup scheduler if enabled
@@ -560,6 +765,12 @@ func validateExternalURL(rawURL string) error {
 }
 
 func (s *Server) Close() {
+	if s.rebalancer != nil {
+		s.rebalancer.Stop()
+	}
+	if s.clusterNode != nil {
+		s.clusterNode.Shutdown()
+	}
 	if s.lambdaMgr != nil {
 		s.lambdaMgr.Stop()
 	}

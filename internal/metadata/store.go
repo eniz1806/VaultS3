@@ -36,6 +36,7 @@ var (
 	encryptionConfigBucket  = []byte("encryption_configs")
 	publicAccessBlockBucket = []byte("public_access_blocks")
 	loggingConfigBucket     = []byte("logging_configs")
+	changeLogBucket         = []byte("change_log")
 )
 
 type Store struct {
@@ -234,6 +235,7 @@ type ObjectMeta struct {
 	RetentionUntil int64             `json:"retention_until,omitempty"`  // unix timestamp
 	Tier           string            `json:"tier,omitempty"`             // "hot" or "cold", default "hot"
 	LastAccessTime int64             `json:"last_access_time,omitempty"` // unix timestamp
+	VectorClock    json.RawMessage   `json:"vector_clock,omitempty"`    // vector clock for active-active replication
 }
 
 func NewStore(path string) (*Store, error) {
@@ -310,6 +312,9 @@ func NewStore(path string) (*Store, error) {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(loggingConfigBucket); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(changeLogBucket); err != nil {
 			return err
 		}
 		return nil
@@ -1926,4 +1931,88 @@ func (s *Store) DeleteLoggingConfig(bucket string) error {
 		b := tx.Bucket(loggingConfigBucket)
 		return b.Delete([]byte(bucket))
 	})
+}
+
+// ChangeLogRawEntry is a raw key-value pair from the change log bucket.
+type ChangeLogRawEntry struct {
+	Key   []byte
+	Value []byte
+}
+
+// AppendChangeLog appends a new entry to the change log with an auto-incrementing sequence key.
+func (s *Store) AppendChangeLog(data []byte) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(changeLogBucket)
+		seq, err := b.NextSequence()
+		if err != nil {
+			return err
+		}
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, seq)
+		return b.Put(key, data)
+	})
+}
+
+// ReadChangeLog returns entries with sequence numbers greater than sinceSeq, up to limit.
+func (s *Store) ReadChangeLog(sinceSeq uint64, limit int) ([]ChangeLogRawEntry, error) {
+	var entries []ChangeLogRawEntry
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(changeLogBucket)
+		c := b.Cursor()
+
+		startKey := make([]byte, 8)
+		binary.BigEndian.PutUint64(startKey, sinceSeq+1)
+
+		count := 0
+		for k, v := c.Seek(startKey); k != nil && count < limit; k, v = c.Next() {
+			kCopy := make([]byte, len(k))
+			copy(kCopy, k)
+			vCopy := make([]byte, len(v))
+			copy(vCopy, v)
+			entries = append(entries, ChangeLogRawEntry{Key: kCopy, Value: vCopy})
+			count++
+		}
+		return nil
+	})
+	return entries, err
+}
+
+// TrimChangeLog removes all entries with sequence numbers less than beforeSeq.
+func (s *Store) TrimChangeLog(beforeSeq uint64) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(changeLogBucket)
+		c := b.Cursor()
+
+		maxKey := make([]byte, 8)
+		binary.BigEndian.PutUint64(maxKey, beforeSeq)
+
+		var keysToDelete [][]byte
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
+			if binary.BigEndian.Uint64(k) < beforeSeq {
+				kCopy := make([]byte, len(k))
+				copy(kCopy, k)
+				keysToDelete = append(keysToDelete, kCopy)
+			} else {
+				break
+			}
+		}
+
+		for _, k := range keysToDelete {
+			if err := b.Delete(k); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ChangeLogSeq returns the current highest sequence number in the change log.
+func (s *Store) ChangeLogSeq() (uint64, error) {
+	var seq uint64
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(changeLogBucket)
+		seq = b.Sequence()
+		return nil
+	})
+	return seq, err
 }

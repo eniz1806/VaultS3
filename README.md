@@ -46,6 +46,9 @@
 | RAM (small deploy) | **<80 MB** | 512 MB+ | 50-200 MB | 50-150 MB |
 | Single binary | **Yes** | Yes | No | Yes |
 | Web dashboard | **Built-in** | Built-in | No | No |
+| Raft clustering | **Yes** | Yes | Yes | Yes |
+| Erasure coding | **Yes** | Yes | Yes | No |
+| Active-active replication | **Yes** | Yes | No | No |
 | FUSE mount | **Built-in** | No | Buggy | No |
 | Full-text search | **Yes** | No | No | No |
 | Version diff/tags | **Yes** | No | No | No |
@@ -100,6 +103,11 @@ make build && ./vaults3
 - **Audit trail** — Persistent audit log with filtering by user, bucket, time range; auto-pruning via lifecycle worker
 - **IP allowlist/blocklist** — Global and per-user CIDR-based IP restrictions with IPv4/IPv6 support
 - **S3 event notifications** — Per-bucket webhook notifications on object mutations with event type and key prefix/suffix filtering, plus Kafka, NATS, and Redis backends
+- **Raft clustering** — Multi-node cluster with Hashicorp Raft consensus for strongly consistent distributed metadata, automatic leader election, and node join/leave via HTTP API
+- **Consistent hashing** — xxhash64-based hash ring with virtual nodes for automatic data placement and request routing across cluster nodes via reverse proxy
+- **Erasure coding** — Reed-Solomon encoding (configurable data/parity shards) for disk-failure protection with background healer that auto-reconstructs degraded objects
+- **High availability** — Automatic failure detection (health probes with suspect/down state machine), failover proxy routing to healthy replicas, and background rebalancer for membership changes
+- **Active-active replication** — Bidirectional site-to-site sync with vector clocks for causal ordering, pluggable conflict resolution (last-writer-wins, largest-object, site-preference), and change log for efficient delta sync
 - **Async replication** — One-way async replication to peer VaultS3 instances with BoltDB-backed queue, retry with exponential backoff, and loop prevention
 - **CLI tool** — Standalone `vaults3-cli` binary for bucket, object, user, and replication management without AWS CLI
 - **Presigned upload restrictions** — Enforce max file size, content type whitelist, and key prefix on presigned PUT URLs
@@ -205,6 +213,10 @@ make build && ./vaults3
 | Bulk Download Zip | `GET /api/v1/buckets/{name}/download-zip?keys=...` | Done |
 | Version List (Dashboard) | `GET /api/v1/versions?bucket=X&key=Y` | Done |
 | Settings | `GET /api/v1/settings` | Done |
+| Cluster Status | `GET /cluster/status` | Done |
+| Cluster Join | `POST /cluster/join` | Done |
+| Cluster Leave | `POST /cluster/leave` | Done |
+| Replication Sync | `POST /_replication/sync` | Done |
 
 ## Quick Start
 
@@ -265,6 +277,52 @@ security:
   ip_blocklist: []     # global CIDR deny list
   audit_retention_days: 90
   sts_max_duration_secs: 43200  # max STS token duration (12 hours)
+
+# Distributed clustering (optional)
+cluster:
+  enabled: false
+  node_id: "node-1"
+  bind_addr: "0.0.0.0"
+  raft_port: 9001
+  api_port: 9000
+  bootstrap: true          # true for the first node
+  peers: []                # ["node-2@host2:9001", "node-3@host3:9001"]
+  peer_apis:               # nodeID → "host:apiPort"
+    node-2: "host2:9000"
+    node-3: "host3:9000"
+  placement:
+    replica_count: 3
+    read_quorum: 2
+    write_quorum: 2
+    virtual_nodes: 128
+  detector:
+    probe_interval_secs: 5
+    suspect_after: 3
+    down_after: 6
+  rebalance:
+    max_bandwidth_mbps: 50
+    batch_size: 100
+
+# Erasure coding (optional, works with or without clustering)
+erasure:
+  enabled: false
+  data_shards: 4
+  parity_shards: 2
+  block_size: 4194304      # 4MB, objects smaller than this bypass EC
+  data_dirs: []            # multiple disk paths for shard distribution
+  heal_interval: 300       # seconds between heal scans
+
+# Replication
+replication:
+  enabled: false
+  mode: "push"             # "push" (one-way) or "active-active" (bidirectional)
+  site_id: "site-1"        # unique site ID for active-active mode
+  conflict_strategy: "last-writer-wins"  # "last-writer-wins", "largest-object", "site-preference"
+  preferred_site: ""       # for site-preference strategy
+  peers: []
+  scan_interval_secs: 10
+  max_retries: 5
+  batch_size: 100
 ```
 
 ### Encryption at Rest

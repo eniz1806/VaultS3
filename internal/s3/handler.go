@@ -34,6 +34,10 @@ type SearchUpdateFunc func(eventType, bucket, key string)
 // LambdaFunc is called after object mutations to trigger lambda functions.
 type LambdaFunc func(eventType, bucket, key string, size int64, etag, versionID string)
 
+// ClusterProxyFunc checks if a request should be forwarded to another node.
+// Returns true if the request was proxied (caller should return immediately).
+type ClusterProxyFunc func(w http.ResponseWriter, r *http.Request, bucket, key string) bool
+
 // Handler routes incoming S3 API requests to the appropriate handler.
 type Handler struct {
 	store               *metadata.Store
@@ -54,6 +58,7 @@ type Handler struct {
 	rateLimiter         *ratelimit.Limiter
 	accessUpdater       *metadata.AccessUpdater
 	replicationPeerKeys map[string]bool
+	clusterProxy        ClusterProxyFunc
 }
 
 func NewHandler(store *metadata.Store, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
@@ -131,6 +136,11 @@ func (h *Handler) isReplicationPeer(accessKey string) bool {
 	return h.replicationPeerKeys[accessKey]
 }
 
+// SetClusterProxy sets the function used to proxy requests to other cluster nodes.
+func (h *Handler) SetClusterProxy(fn ClusterProxyFunc) {
+	h.clusterProxy = fn
+}
+
 // SetAccessUpdater sets the batched access updater.
 func (h *Handler) SetAccessUpdater(u *metadata.AccessUpdater) {
 	h.accessUpdater = u
@@ -154,6 +164,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	bucket, key := h.parseRequest(r.Host, path)
 
 	slog.Debug("S3 request", "method", r.Method, "bucket", bucket, "key", key)
+
+	// Cluster proxy: forward to the correct node if this isn't the primary
+	// Skip if already proxied (X-VaultS3-Proxy header present) to prevent loops
+	if h.clusterProxy != nil && r.Header.Get("X-VaultS3-Proxy") == "" {
+		if h.clusterProxy(w, r, bucket, key) {
+			return
+		}
+	}
 
 	// Reject path traversal in keys
 	if key != "" {

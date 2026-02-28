@@ -42,6 +42,9 @@ The following are in scope:
 - Dashboard XSS or CSRF
 - CORS misconfiguration allowing data theft
 - Rate limiting bypass
+- Raft cluster membership manipulation
+- Replication sync endpoint abuse
+- Inter-node proxy loop exploitation
 
 ### Out of Scope
 
@@ -73,6 +76,11 @@ VaultS3 includes multiple security layers:
 - **Non-root Docker container** (runs as `vaults3` user, UID 1000)
 - **Default credential warning** (startup log warning when using default admin credentials)
 - **Error message sanitization** (OIDC and health check errors return generic messages, no internal detail leaking)
+- **Raft consensus** (cluster writes require majority quorum, preventing split-brain)
+- **Proxy loop prevention** (`X-VaultS3-Proxy` header prevents infinite request forwarding between cluster nodes)
+- **Replication SSRF protection** (peer URLs validated against localhost, private IPs, link-local, and cloud metadata endpoints)
+- **Replication peer authentication** (bidirectional sync uses SigV4-signed requests, peer access keys registered at startup)
+- **Rebalance isolation** (`X-VaultS3-Rebalance` header marks internal object transfers)
 
 ## Deployment Best Practices
 
@@ -80,6 +88,9 @@ VaultS3 includes multiple security layers:
 - **Use HTTPS in production** — set `VAULTS3_TLS_CERT` and `VAULTS3_TLS_KEY`, or run behind a reverse proxy with TLS termination
 - **Run behind a reverse proxy** (nginx, Caddy, Traefik) for additional rate limiting, IP filtering, and access logging
 - **Enable encryption at rest** — set `VAULTS3_ENCRYPTION_KEY` with a random 64-char hex key (`openssl rand -hex 32`)
-- **Restrict network access** — use firewall rules to limit who can reach port 9000
+- **Restrict network access** — use firewall rules to limit who can reach port 9000 (and Raft port 9001 in cluster mode)
+- **Isolate Raft traffic** — bind the Raft port to a private network interface, never expose it publicly
+- **Secure replication peers** — use unique access keys per peer, rotate credentials regularly
 - **Monitor the audit trail** — review `/api/v1/audit` for suspicious activity
+- **Monitor cluster health** — check `/cluster/status` and `/health` endpoints for node failures
 - **Keep VaultS3 updated** — pull the latest Docker image regularly
