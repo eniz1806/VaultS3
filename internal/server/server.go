@@ -63,6 +63,7 @@ type Server struct {
 	failureDetector *cluster.FailureDetector
 	rebalancer      *cluster.Rebalancer
 	ecHealer        *erasure.Healer
+	s3Auth          *s3.Authenticator
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -235,6 +236,14 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize S3 authenticator
 	auth := s3.NewAuthenticator(cfg.Auth.AdminAccessKey, cfg.Auth.AdminSecretKey, store,
 		cfg.Security.IPAllowlist, cfg.Security.IPBlocklist)
+
+	// Load persisted admin credentials (overrides config/env if previously changed via dashboard)
+	if ak, sk, err := store.GetAdminCredentials(); err == nil && ak != "" && sk != "" {
+		cfg.Auth.AdminAccessKey = ak
+		cfg.Auth.AdminSecretKey = sk
+		auth.UpdateAdminCredentials(ak, sk)
+		slog.Info("loaded persisted admin credentials")
+	}
 
 	// Initialize metrics collector
 	mc := metrics.NewCollector(store, engine)
@@ -512,6 +521,7 @@ func New(cfg *config.Config) (*Server, error) {
 		failureDetector: failureDetector,
 		rebalancer:      rebalancer,
 		ecHealer:        ecHealer,
+		s3Auth:          auth,
 	}, nil
 }
 
@@ -522,6 +532,7 @@ func (s *Server) Run() error {
 
 	// Dashboard API
 	apiHandler := api.NewAPIHandler(s.store, s.engine, s.metrics, s.cfg, s.activity)
+	apiHandler.SetS3Authenticator(s.s3Auth)
 	apiHandler.SetSearchIndex(s.searchIndex)
 	if s.scanWorker != nil {
 		apiHandler.SetScanner(s.scanWorker)

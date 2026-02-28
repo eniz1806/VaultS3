@@ -38,6 +38,7 @@ var (
 	loggingConfigBucket     = []byte("logging_configs")
 	changeLogBucket         = []byte("change_log")
 	replicationConfigBucket = []byte("replication_configs")
+	serverSettingsBucket    = []byte("server_settings")
 )
 
 type Store struct {
@@ -350,6 +351,9 @@ func NewStore(path string) (*Store, error) {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(replicationConfigBucket); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(serverSettingsBucket); err != nil {
 			return err
 		}
 		return nil
@@ -2133,4 +2137,31 @@ func (s *Store) DeleteReplicationConfig(bucket string) error {
 		b := tx.Bucket(replicationConfigBucket)
 		return b.Delete([]byte(bucket))
 	})
+}
+
+// SetAdminCredentials persists admin credentials to the metadata store.
+func (s *Store) SetAdminCredentials(accessKey, secretKey string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(serverSettingsBucket)
+		if err := b.Put([]byte("admin_access_key"), []byte(accessKey)); err != nil {
+			return err
+		}
+		return b.Put([]byte("admin_secret_key"), []byte(secretKey))
+	})
+}
+
+// GetAdminCredentials retrieves persisted admin credentials.
+// Returns empty strings if no credentials have been persisted.
+func (s *Store) GetAdminCredentials() (accessKey, secretKey string, err error) {
+	err = s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(serverSettingsBucket)
+		if ak := b.Get([]byte("admin_access_key")); ak != nil {
+			accessKey = string(ak)
+		}
+		if sk := b.Get([]byte("admin_secret_key")); sk != nil {
+			secretKey = string(sk)
+		}
+		return nil
+	})
+	return
 }

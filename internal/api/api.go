@@ -13,6 +13,7 @@ import (
 	"github.com/eniz1806/VaultS3/internal/metadata"
 	"github.com/eniz1806/VaultS3/internal/metrics"
 	"github.com/eniz1806/VaultS3/internal/ratelimit"
+	s3auth "github.com/eniz1806/VaultS3/internal/s3"
 	"github.com/eniz1806/VaultS3/internal/scanner"
 	"github.com/eniz1806/VaultS3/internal/search"
 	"github.com/eniz1806/VaultS3/internal/storage"
@@ -37,6 +38,7 @@ type APIHandler struct {
 	eventBus         *EventBus
 	logBroadcaster   *LogBroadcaster
 	traceBroadcaster *TraceBroadcaster
+	s3Auth           *s3auth.Authenticator
 }
 
 func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Collector, cfg *config.Config, activity *ActivityLog) *APIHandler {
@@ -73,6 +75,11 @@ func (h *APIHandler) SetLogBroadcaster(lb *LogBroadcaster) {
 // SetTraceBroadcaster sets the trace broadcaster for request tracing.
 func (h *APIHandler) SetTraceBroadcaster(tb *TraceBroadcaster) {
 	h.traceBroadcaster = tb
+}
+
+// SetS3Authenticator sets the S3 authenticator reference for credential updates.
+func (h *APIHandler) SetS3Authenticator(auth *s3auth.Authenticator) {
+	h.s3Auth = auth
 }
 
 func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +143,7 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		strings.HasPrefix(path, "/replication/") ||
 		strings.HasPrefix(path, "/scanner/") ||
 		strings.HasPrefix(path, "/tiering/") ||
-		path == "/settings" ||
+		strings.HasPrefix(path, "/settings") ||
 		path == "/presign"
 
 	if adminPaths && !h.isAdminUser(r) {
@@ -269,6 +276,8 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Settings route (admin only)
 	case path == "/settings" && r.Method == http.MethodGet:
 		h.handleSettings(w, r)
+	case path == "/settings/credentials" && r.Method == http.MethodPut:
+		h.handleChangeCredentials(w, r)
 
 	// Stats route
 	case path == "/stats" && r.Method == http.MethodGet:

@@ -44,3 +44,10 @@ export interface Settings {
 export function getSettings(): Promise<Settings> {
   return apiFetch<Settings>('/settings')
 }
+
+export function changeCredentials(currentSecretKey: string, newAccessKey: string, newSecretKey: string): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>('/settings/credentials', {
+    method: 'PUT',
+    body: JSON.stringify({ currentSecretKey, newAccessKey, newSecretKey }),
+  })
+}

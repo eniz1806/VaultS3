@@ -38,6 +38,12 @@ func NewAuthenticator(accessKey, secretKey string, store *metadata.Store, allowC
 	}
 }
 
+// UpdateAdminCredentials updates the admin access key and secret key at runtime.
+func (a *Authenticator) UpdateAdminCredentials(accessKey, secretKey string) {
+	a.adminAccessKey = accessKey
+	a.adminSecretKey = secretKey
+}
+
 // resolveIdentity looks up the identity for a given access key.
 // Returns the identity with user info and policies.
 func (a *Authenticator) resolveIdentity(accessKey string) (*iam.Identity, string, error) {

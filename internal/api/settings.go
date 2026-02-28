@@ -1,6 +1,9 @@
 package api
 
-import "net/http"
+import (
+	"crypto/hmac"
+	"net/http"
+)
 
 type settingsResponse struct {
 	Server struct {
@@ -81,4 +84,53 @@ func (h *APIHandler) handleSettings(w http.ResponseWriter, _ *http.Request) {
 	resp.Memory.GoMemLimitMB = h.cfg.Memory.GoMemLimitMB
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+type changeCredentialsRequest struct {
+	CurrentSecretKey string `json:"currentSecretKey"`
+	NewAccessKey     string `json:"newAccessKey"`
+	NewSecretKey     string `json:"newSecretKey"`
+}
+
+func (h *APIHandler) handleChangeCredentials(w http.ResponseWriter, r *http.Request) {
+	var req changeCredentialsRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.NewAccessKey == "" || req.NewSecretKey == "" {
+		writeError(w, http.StatusBadRequest, "new access key and secret key are required")
+		return
+	}
+
+	if len(req.NewSecretKey) < 8 {
+		writeError(w, http.StatusBadRequest, "secret key must be at least 8 characters")
+		return
+	}
+
+	// Verify current secret key
+	if !hmac.Equal([]byte(req.CurrentSecretKey), []byte(h.cfg.Auth.AdminSecretKey)) {
+		writeError(w, http.StatusForbidden, "current secret key is incorrect")
+		return
+	}
+
+	// Update in-memory config
+	h.cfg.Auth.AdminAccessKey = req.NewAccessKey
+	h.cfg.Auth.AdminSecretKey = req.NewSecretKey
+
+	// Update S3 authenticator so SigV4 auth uses new credentials
+	if h.s3Auth != nil {
+		h.s3Auth.UpdateAdminCredentials(req.NewAccessKey, req.NewSecretKey)
+	}
+
+	// Re-initialize JWT service with new secret key
+	h.jwt = NewJWTService(req.NewSecretKey)
+
+	// Persist to metadata store
+	if h.store != nil {
+		_ = h.store.SetAdminCredentials(req.NewAccessKey, req.NewSecretKey)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "credentials updated successfully"})
 }
