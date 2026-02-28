@@ -881,12 +881,27 @@ func (h *ObjectHandler) CopyObject(w http.ResponseWriter, r *http.Request, bucke
 		writeS3Error(w, "InvalidArgument", "Invalid x-amz-copy-source", http.StatusBadRequest)
 		return
 	}
-	// Validate source key against path traversal
+	// Validate source key against path traversal (check after unescaping AND
+	// also check for double-encoded traversals by unescaping again)
 	for _, segment := range strings.Split(srcKey, "/") {
 		if segment == ".." {
 			writeS3Error(w, "InvalidArgument", "Invalid x-amz-copy-source key", http.StatusBadRequest)
 			return
 		}
+	}
+	// Reject double-encoded path traversal (e.g. %252e%252e → %2e%2e → ..)
+	if decoded, err := url.PathUnescape(srcKey); err == nil && decoded != srcKey {
+		for _, segment := range strings.Split(decoded, "/") {
+			if segment == ".." {
+				writeS3Error(w, "InvalidArgument", "Invalid x-amz-copy-source key", http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	// Reject null bytes
+	if strings.ContainsRune(srcKey, 0) {
+		writeS3Error(w, "InvalidArgument", "Invalid x-amz-copy-source key", http.StatusBadRequest)
+		return
 	}
 
 	if !h.store.BucketExists(srcBucket) {

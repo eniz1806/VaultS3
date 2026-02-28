@@ -172,12 +172,16 @@ func validateContentMD5(w http.ResponseWriter, contentMD5 string, body []byte) b
 }
 
 // parseUserMetadata extracts x-amz-meta-* headers.
+// Limits: max 100 metadata entries, max 2KB per key, max 8KB per value (S3 limits).
 func parseUserMetadata(r *http.Request) map[string]string {
 	meta := make(map[string]string)
 	for k, v := range r.Header {
 		lk := strings.ToLower(k)
 		if strings.HasPrefix(lk, "x-amz-meta-") && len(v) > 0 {
 			name := strings.TrimPrefix(lk, "x-amz-meta-")
+			if len(name) > 2048 || len(v[0]) > 8192 || len(meta) >= 100 {
+				continue // skip oversized or excess metadata
+			}
 			meta[name] = v[0]
 		}
 	}

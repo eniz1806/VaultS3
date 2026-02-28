@@ -50,10 +50,9 @@ func (h *APIHandler) handleGeneratePresign(w http.ResponseWriter, r *http.Reques
 		host = fmt.Sprintf("localhost:%d", h.cfg.Server.Port)
 	}
 
-	// Use a dedicated read-only presign key pair derived from admin credentials.
-	// The presign endpoint is admin-only, but the generated URL should only grant
-	// access to the specific bucket/key — not full admin privileges.
-	presignAccessKey := "vaults3-presign"
+	// Use admin credentials for presigned URLs. The presigned URL is already
+	// scoped to a specific bucket/key and time-limited by the signature.
+	presignAccessKey := h.cfg.Auth.AdminAccessKey
 	presignSecretKey := h.cfg.Auth.AdminSecretKey
 
 	var presignedURL string

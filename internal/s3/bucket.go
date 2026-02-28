@@ -986,12 +986,28 @@ func isValidBucketName(name string) bool {
 	if len(name) < 3 || len(name) > 63 {
 		return false
 	}
-	for _, c := range name {
+	// Must start and end with letter or digit
+	first, last := name[0], name[len(name)-1]
+	if !isAlphaNum(first) || !isAlphaNum(last) {
+		return false
+	}
+	// No consecutive dots, no ".." path traversal
+	prev := byte(0)
+	for i := 0; i < len(name); i++ {
+		c := name[i]
 		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.') {
 			return false
 		}
+		if c == '.' && prev == '.' {
+			return false // no consecutive dots
+		}
+		prev = c
 	}
 	return true
+}
+
+func isAlphaNum(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
 }
 
 // PutBucketLambda handles PUT /{bucket}?lambda — set lambda trigger configuration.

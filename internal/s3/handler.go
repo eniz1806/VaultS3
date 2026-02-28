@@ -257,6 +257,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if authRequired {
 		identity, err := h.auth.Authenticate(r)
 		if err != nil {
+			// Log authentication failure for security monitoring
+			if h.onAudit != nil {
+				action := mapMethodToAction(r.Method, bucket, key, r.URL.Query())
+				resource := formatResource(bucket, key)
+				accessKey := extractAccessKeyFromAuth(r)
+				h.onAudit(accessKey, "", action, resource, "Deny", clientIP, http.StatusForbidden)
+			}
 			writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
 			return
 		}
