@@ -41,12 +41,9 @@ jobs:
           go build -o vaults3 ./cmd/vaults3
           go build -o vaults3-cli ./cmd/vaults3-cli
 
-      - name: Run tests
-        run: go test ./...
-
-      - name: Run tests with coverage
+      - name: Run tests with race detection and coverage
         run: |
-          go test -coverprofile=coverage.out ./...
+          go test -race -coverprofile=coverage.out ./...
           go tool cover -func=coverage.out
 
   lint:

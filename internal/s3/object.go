@@ -127,7 +127,9 @@ func (h *ObjectHandler) fifoEvict(bucket string, countToFree int64, bytesToFree 
 // generateVersionID creates a unique version ID using timestamp + random bytes.
 func generateVersionID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return fmt.Sprintf("%016x%s", time.Now().UnixNano(), hex.EncodeToString(b[:4]))
 }
 

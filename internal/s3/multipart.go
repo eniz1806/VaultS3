@@ -403,7 +403,9 @@ func (h *ObjectHandler) UploadPartCopy(w http.ResponseWriter, r *http.Request, b
 
 func generateUploadID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }
 
