@@ -1,6 +1,8 @@
 package s3
 
 import (
+	"compress/bzip2"
+	"compress/gzip"
 	"encoding/csv"
 	"encoding/json"
 	"encoding/xml"
@@ -66,12 +68,32 @@ func (h *ObjectHandler) SelectObjectContent(w http.ResponseWriter, r *http.Reque
 	}
 	defer reader.Close()
 
+	// Decompress if needed
+	var dataReader io.Reader = reader
+	switch strings.ToUpper(req.InputSerialization.CompressionType) {
+	case "GZIP":
+		gz, err := gzip.NewReader(reader)
+		if err != nil {
+			writeS3Error(w, "InvalidArgument", "Failed to decompress GZIP input", http.StatusBadRequest)
+			return
+		}
+		defer gz.Close()
+		dataReader = gz
+	case "BZIP2":
+		dataReader = bzip2.NewReader(reader)
+	case "NONE", "":
+		// no decompression
+	default:
+		writeS3Error(w, "InvalidArgument", fmt.Sprintf("Unsupported CompressionType: %s", req.InputSerialization.CompressionType), http.StatusBadRequest)
+		return
+	}
+
 	// Determine input format
 	var records []map[string]string
 	if req.InputSerialization.CSV != nil {
-		records, err = parseCSVInput(reader, req.InputSerialization.CSV)
+		records, err = parseCSVInput(dataReader, req.InputSerialization.CSV)
 	} else if req.InputSerialization.JSON != nil {
-		records, err = parseJSONInput(reader, req.InputSerialization.JSON)
+		records, err = parseJSONInput(dataReader, req.InputSerialization.JSON)
 	} else {
 		writeS3Error(w, "InvalidArgument", "InputSerialization must specify CSV or JSON", http.StatusBadRequest)
 		return
@@ -136,8 +158,9 @@ type selectRequest struct {
 }
 
 type inputSerialization struct {
-	CSV  *csvInput  `xml:"CSV"`
-	JSON *jsonInput `xml:"JSON"`
+	CompressionType string     `xml:"CompressionType"` // NONE, GZIP, BZIP2
+	CSV             *csvInput  `xml:"CSV"`
+	JSON            *jsonInput `xml:"JSON"`
 }
 
 type csvInput struct {

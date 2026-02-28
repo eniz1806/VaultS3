@@ -183,6 +183,7 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 	// Concatenate parts and compute multipart ETag
 	var totalSize int64
 	combinedHash := md5.New()
+	var partBoundaries []int64
 
 	for _, part := range req.Parts {
 		partPath := filepath.Join(h.multipartDir(uploadID), fmt.Sprintf("part-%05d", part.PartNumber))
@@ -204,6 +205,7 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 		}
 
 		totalSize += written
+		partBoundaries = append(partBoundaries, totalSize)
 		combinedHash.Write(partHash.Sum(nil))
 	}
 
@@ -218,7 +220,9 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 		ContentType:  upload.ContentType,
 		ETag:         etag,
 		Size:         totalSize,
-		LastModified: now.Unix(),
+		LastModified:   now.Unix(),
+		PartsCount:     len(req.Parts),
+		PartBoundaries: partBoundaries,
 	})
 
 	// Clean up

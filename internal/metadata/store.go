@@ -37,6 +37,7 @@ var (
 	publicAccessBlockBucket = []byte("public_access_blocks")
 	loggingConfigBucket     = []byte("logging_configs")
 	changeLogBucket         = []byte("change_log")
+	replicationConfigBucket = []byte("replication_configs")
 )
 
 type Store struct {
@@ -44,9 +45,21 @@ type Store struct {
 }
 
 type LifecycleRule struct {
-	ExpirationDays int    `json:"expiration_days"`
-	Prefix         string `json:"prefix,omitempty"`
-	Status         string `json:"status"` // "Enabled" or "Disabled"
+	ID                              string            `json:"id,omitempty"`
+	ExpirationDays                  int               `json:"expiration_days"`
+	Prefix                          string            `json:"prefix,omitempty"`
+	Status                          string            `json:"status"` // "Enabled" or "Disabled"
+	TagFilter                       map[string]string `json:"tag_filter,omitempty"`
+	NoncurrentVersionExpirationDays int               `json:"noncurrent_version_expiration_days,omitempty"`
+	MaxNoncurrentVersions           int               `json:"max_noncurrent_versions,omitempty"`
+	AbortIncompleteMultipartDays    int               `json:"abort_incomplete_multipart_days,omitempty"`
+	ExpiredObjectDeleteMarker       bool              `json:"expired_object_delete_marker,omitempty"`
+	ObjectSizeGreaterThan           int64             `json:"object_size_greater_than,omitempty"`
+	ObjectSizeLessThan              int64             `json:"object_size_less_than,omitempty"`
+}
+
+type LifecycleConfig struct {
+	Rules []LifecycleRule `json:"rules"`
 }
 
 type WebsiteConfig struct {
@@ -63,6 +76,7 @@ type BucketInfo struct {
 	DefaultRetentionMode string            `json:"default_retention_mode,omitempty"` // "GOVERNANCE" or "COMPLIANCE"
 	DefaultRetentionDays int               `json:"default_retention_days,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
+	FIFOQuota            bool              `json:"fifo_quota,omitempty"` // delete oldest objects to make room instead of rejecting
 }
 
 type AccessKey struct {
@@ -73,6 +87,8 @@ type AccessKey struct {
 	ExpiresAt    int64     `json:"expires_at,omitempty"`     // unix timestamp, 0=never
 	SessionToken string    `json:"session_token,omitempty"`  // STS session identifier
 	SourceUserID string    `json:"source_user_id,omitempty"` // user who created this STS key
+	Description  string    `json:"description,omitempty"`
+	Status       string    `json:"status,omitempty"` // "Active" or "Inactive", default Active
 }
 
 type IAMUser struct {
@@ -235,7 +251,23 @@ type ObjectMeta struct {
 	RetentionUntil int64             `json:"retention_until,omitempty"`  // unix timestamp
 	Tier           string            `json:"tier,omitempty"`             // "hot" or "cold", default "hot"
 	LastAccessTime int64             `json:"last_access_time,omitempty"` // unix timestamp
-	VectorClock    json.RawMessage   `json:"vector_clock,omitempty"`    // vector clock for active-active replication
+	VectorClock    json.RawMessage   `json:"vector_clock,omitempty"`     // vector clock for active-active replication
+
+	// Phase 1: S3-compatible metadata headers
+	UserMetadata       map[string]string `json:"user_metadata,omitempty"`
+	ContentEncoding    string            `json:"content_encoding,omitempty"`
+	ContentDisposition string            `json:"content_disposition,omitempty"`
+	CacheControl       string            `json:"cache_control,omitempty"`
+	ContentLanguage    string            `json:"content_language,omitempty"`
+	PartsCount         int               `json:"parts_count,omitempty"`
+	ChecksumSHA256     string            `json:"checksum_sha256,omitempty"`
+	ChecksumCRC32      string            `json:"checksum_crc32,omitempty"`
+	ChecksumCRC32C     string            `json:"checksum_crc32c,omitempty"`
+	ChecksumSHA1       string            `json:"checksum_sha1,omitempty"`
+	ReplicationStatus  string            `json:"replication_status,omitempty"`
+	WebsiteRedirect    string            `json:"website_redirect,omitempty"`
+	ContentMD5         string            `json:"content_md5,omitempty"`
+	PartBoundaries     []int64           `json:"part_boundaries,omitempty"` // cumulative byte offsets for each part
 }
 
 func NewStore(path string) (*Store, error) {
@@ -315,6 +347,9 @@ func NewStore(path string) (*Store, error) {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(changeLogBucket); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(replicationConfigBucket); err != nil {
 			return err
 		}
 		return nil
@@ -1085,6 +1120,42 @@ func (s *Store) DeleteLifecycleRule(bucket string) error {
 	})
 }
 
+func (s *Store) PutLifecycleConfig(bucket string, cfg LifecycleConfig) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(lifecycleBucket)
+		data, err := json.Marshal(cfg)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(bucket), data)
+	})
+}
+
+func (s *Store) GetLifecycleConfig(bucket string) (*LifecycleConfig, error) {
+	var cfg *LifecycleConfig
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(lifecycleBucket)
+		data := b.Get([]byte(bucket))
+		if data == nil {
+			return nil
+		}
+		// Try new multi-rule format first
+		var mc LifecycleConfig
+		if err := json.Unmarshal(data, &mc); err == nil && len(mc.Rules) > 0 {
+			cfg = &mc
+			return nil
+		}
+		// Fallback: old single-rule format
+		var rule LifecycleRule
+		if err := json.Unmarshal(data, &rule); err == nil && rule.Status != "" {
+			cfg = &LifecycleConfig{Rules: []LifecycleRule{rule}}
+			return nil
+		}
+		return nil
+	})
+	return cfg, err
+}
+
 // ScanObjects iterates all object metadata entries. Return false from fn to stop.
 func (s *Store) ScanObjects(fn func(ObjectMeta) bool) error {
 	return s.db.View(func(tx *bolt.Tx) error {
@@ -1096,6 +1167,23 @@ func (s *Store) ScanObjects(fn func(ObjectMeta) bool) error {
 			}
 			if !fn(meta) {
 				return fmt.Errorf("scan stopped") // break iteration
+			}
+			return nil
+		})
+	})
+}
+
+// ScanObjectVersions iterates all object version entries. Return false from fn to stop.
+func (s *Store) ScanObjectVersions(fn func(ObjectMeta) bool) error {
+	return s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(objectVersionsBucket)
+		return b.ForEach(func(k, v []byte) error {
+			var meta ObjectMeta
+			if err := json.Unmarshal(v, &meta); err != nil {
+				return nil
+			}
+			if !fn(meta) {
+				return fmt.Errorf("scan stopped")
 			}
 			return nil
 		})
@@ -2015,4 +2103,34 @@ func (s *Store) ChangeLogSeq() (uint64, error) {
 		return nil
 	})
 	return seq, err
+}
+
+// PutReplicationConfig stores a bucket's replication configuration as a JSON string.
+func (s *Store) PutReplicationConfig(bucket, data string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(replicationConfigBucket)
+		return b.Put([]byte(bucket), []byte(data))
+	})
+}
+
+// GetReplicationConfig returns the replication configuration JSON for a bucket.
+func (s *Store) GetReplicationConfig(bucket string) (string, error) {
+	var data string
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(replicationConfigBucket)
+		v := b.Get([]byte(bucket))
+		if v != nil {
+			data = string(v)
+		}
+		return nil
+	})
+	return data, err
+}
+
+// DeleteReplicationConfig removes the replication configuration for a bucket.
+func (s *Store) DeleteReplicationConfig(bucket string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(replicationConfigBucket)
+		return b.Delete([]byte(bucket))
+	})
 }

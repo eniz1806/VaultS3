@@ -72,11 +72,17 @@ func (h *BucketHandler) ListBuckets(w http.ResponseWriter, r *http.Request) {
 		Buckets []xmlBucket `xml:"Buckets>Bucket"`
 	}
 
+	// Filter by prefix if specified
+	prefix := r.URL.Query().Get("prefix")
+
 	resp := xmlResponse{
 		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
 		Owner: xmlOwner{ID: "vaults3", DisplayName: "VaultS3"},
 	}
 	for _, b := range buckets {
+		if prefix != "" && !strings.HasPrefix(b.Name, prefix) {
+			continue
+		}
 		resp.Buckets = append(resp.Buckets, xmlBucket{
 			Name:         b.Name,
 			CreationDate: b.CreatedAt.Format(time.RFC3339),

@@ -545,6 +545,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Replication configuration
+		if _, ok := bq["replication"]; ok {
+			switch r.Method {
+			case http.MethodPut:
+				h.buckets.PutBucketReplication(w, r, bucket)
+			case http.MethodGet:
+				h.buckets.GetBucketReplication(w, r, bucket)
+			case http.MethodDelete:
+				h.buckets.DeleteBucketReplication(w, r, bucket)
+			default:
+				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+
 		// Bucket logging
 		if _, ok := bq["logging"]; ok {
 			switch r.Method {
@@ -589,10 +604,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case http.MethodHead:
 			h.buckets.HeadBucket(w, r, bucket)
 		case http.MethodGet:
-			h.objects.ListObjects(w, r, bucket)
+			if r.URL.Query().Get("list-type") == "2" {
+				h.objects.ListObjects(w, r, bucket)
+			} else {
+				h.objects.ListObjectsV1(w, r, bucket)
+			}
 		case http.MethodPost:
 			if _, ok := bq["delete"]; ok {
 				h.objects.BatchDelete(w, r, bucket)
+			} else if r.Header.Get("Content-Type") != "" && strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
+				h.objects.PostUpload(w, r, bucket)
 			} else {
 				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
 			}
@@ -666,6 +687,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				writeS3Error(w, "MethodNotAllowed", "Method not allowed", http.StatusMethodNotAllowed)
 			}
 			return
+		}
+
+		// RestoreObject
+		if _, ok := q["restore"]; ok {
+			if r.Method == http.MethodPost {
+				h.objects.RestoreObject(w, r, bucket, key)
+				return
+			}
 		}
 
 		// S3 Select

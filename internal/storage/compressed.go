@@ -6,16 +6,43 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 )
+
+// excludedExtensions lists file extensions that should NOT be compressed
+// because they are already compressed or would not benefit from compression.
+var excludedExtensions = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true,
+	".gz": true, ".tgz": true, ".bz2": true, ".xz": true, ".zst": true, ".lz4": true,
+	".zip": true, ".rar": true, ".7z": true, ".tar.gz": true,
+	".mp4": true, ".mkv": true, ".avi": true, ".mov": true, ".webm": true,
+	".mp3": true, ".flac": true, ".ogg": true, ".aac": true,
+	".woff": true, ".woff2": true,
+}
 
 // CompressedEngine wraps another Engine and compresses/decompresses data transparently.
 // Uses gzip compression. Data is compressed before writing and decompressed after reading.
+// Files with already-compressed extensions are passed through without compression.
 type CompressedEngine struct {
-	inner Engine
+	inner        Engine
+	ExcludedTypes map[string]bool // additional excluded extensions
 }
 
 func NewCompressedEngine(inner Engine) *CompressedEngine {
 	return &CompressedEngine{inner: inner}
+}
+
+// shouldCompress returns true if the key should be compressed.
+func (c *CompressedEngine) shouldCompress(key string) bool {
+	ext := strings.ToLower(filepath.Ext(key))
+	if excludedExtensions[ext] {
+		return false
+	}
+	if c.ExcludedTypes != nil && c.ExcludedTypes[ext] {
+		return false
+	}
+	return true
 }
 
 func (c *CompressedEngine) CreateBucketDir(bucket string) error {
@@ -27,12 +54,18 @@ func (c *CompressedEngine) DeleteBucketDir(bucket string) error {
 }
 
 func (c *CompressedEngine) PutObject(bucket, key string, reader io.Reader, size int64) (int64, string, error) {
+	if !c.shouldCompress(key) {
+		return c.inner.PutObject(bucket, key, reader, size)
+	}
 	return c.compressAndPut(reader, func(compressed io.Reader, compressedSize int64) (int64, string, error) {
 		return c.inner.PutObject(bucket, key, compressed, compressedSize)
 	})
 }
 
 func (c *CompressedEngine) GetObject(bucket, key string) (ReadSeekCloser, int64, error) {
+	if !c.shouldCompress(key) {
+		return c.inner.GetObject(bucket, key)
+	}
 	return c.getAndDecompress(func() (ReadSeekCloser, int64, error) {
 		return c.inner.GetObject(bucket, key)
 	})
@@ -59,12 +92,18 @@ func (c *CompressedEngine) BucketSize(bucket string) (int64, int64, error) {
 }
 
 func (c *CompressedEngine) PutObjectVersion(bucket, key, versionID string, reader io.Reader, size int64) (int64, string, error) {
+	if !c.shouldCompress(key) {
+		return c.inner.PutObjectVersion(bucket, key, versionID, reader, size)
+	}
 	return c.compressAndPut(reader, func(compressed io.Reader, compressedSize int64) (int64, string, error) {
 		return c.inner.PutObjectVersion(bucket, key, versionID, compressed, compressedSize)
 	})
 }
 
 func (c *CompressedEngine) GetObjectVersion(bucket, key, versionID string) (ReadSeekCloser, int64, error) {
+	if !c.shouldCompress(key) {
+		return c.inner.GetObjectVersion(bucket, key, versionID)
+	}
 	return c.getAndDecompress(func() (ReadSeekCloser, int64, error) {
 		return c.inner.GetObjectVersion(bucket, key, versionID)
 	})

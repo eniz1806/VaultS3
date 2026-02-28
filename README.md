@@ -15,7 +15,7 @@
   <a href="https://hub.docker.com/r/eniz1806/vaults3"><img src="https://img.shields.io/docker/pulls/eniz1806/vaults3?logo=docker&logoColor=white&color=2496ED" alt="Docker Pulls"></a>
   <a href="https://github.com/eniz1806/VaultS3/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL_v3-4F46E5" alt="License"></a>
   <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
-  <a href="https://github.com/eniz1806/VaultS3"><img src="https://img.shields.io/badge/S3_Operations-50+-10B981" alt="S3 Ops"></a>
+  <a href="https://github.com/eniz1806/VaultS3"><img src="https://img.shields.io/badge/S3_Operations-75+-10B981" alt="S3 Ops"></a>
 </p>
 
 <p align="center">
@@ -135,6 +135,66 @@ make build && ./vaults3
 - **Bucket encryption config** — Per-bucket server-side encryption configuration (AES256, aws:kms) via `PUT/GET/DELETE /{bucket}?encryption`
 - **Public access block** — Per-bucket public access block with 4 boolean flags (BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, RestrictPublicBuckets)
 - **Bucket logging config** — Per-bucket access logging configuration with target bucket and prefix
+- **User metadata** — Custom `x-amz-meta-*` headers on PUT/GET/HEAD
+- **Conditional requests** — `If-Modified-Since`, `If-None-Match` (304), `If-Match`, `If-None-Match` (412) on GET and PUT
+- **Content-MD5 validation** — Server-side integrity check on PUT with `Content-MD5` header
+- **Metadata-only copy** — `x-amz-metadata-directive: REPLACE` for updating metadata without re-uploading
+- **Conditional copy** — `x-amz-copy-source-if-*` headers for conditional CopyObject
+- **Response header overrides** — `?response-content-type`, `?response-content-disposition`, etc. on GET
+- **Inline tagging on PUT** — `x-amz-tagging` header to set tags during object upload
+- **Inline retention on PUT** — `x-amz-object-lock-mode` header to set retention during upload
+- **Canned ACL headers** — `x-amz-acl` and `x-amz-grant-*` headers on PUT
+- **Replication status header** — `x-amz-replication-status` on GET/HEAD responses
+- **Website redirect** — `x-amz-website-redirect-location` header for per-object redirects
+- **S3 Checksum API** — CRC32, CRC32C, SHA1, SHA256 checksums on upload and download
+- **Parts count header** — `x-amz-mp-parts-count` on HEAD for multipart objects
+- **ListObjectsV1** — Marker-based pagination (`GET /{bucket}?marker=`) for legacy client compatibility
+- **ListBuckets with prefix filter** — Filter bucket listing by name prefix
+- **Versioning suspend** — Suspend versioning on a bucket while preserving existing versions
+- **GetObject by part number** — `?partNumber=N` to retrieve individual parts of multipart objects
+- **Multiple lifecycle rules** — Multiple rules per bucket with prefix, tag, and size filters
+- **NoncurrentVersionExpiration** — Auto-expire non-current object versions after N days
+- **AbortIncompleteMultipartUpload** — Auto-cleanup stale multipart uploads after N days
+- **MaxNoncurrentVersions** — Cap retained non-current versions per object
+- **ExpiredObjectDeleteMarker cleanup** — Remove orphaned delete markers automatically
+- **Object size filter** — Lifecycle rules with `ObjectSizeGreaterThan` / `ObjectSizeLessThan` conditions
+- **IAM policy conditions** — `StringEquals`, `StringLike`, `IpAddress`, `DateLessThan` condition operators
+- **Policy variables** — `${aws:username}`, `${aws:userid}` substitution in policy resources
+- **LDAP authentication** — Bind-based LDAP/LDAPS authentication with group mapping
+- **STS AssumeRole** — Federated access via STS AssumeRole with session policies
+- **External auth webhook** — Delegate authentication to an external HTTP endpoint
+- **Access key description & status** — Metadata fields and active/inactive status on access keys
+- **Governance bypass** — `x-amz-bypass-governance-retention` header for admin override of GOVERNANCE locks
+- **Per-bucket replication rules** — Replication rules with prefix and tag filters per bucket
+- **Replication Config API** — S3-compatible `PUT/GET/DELETE /{bucket}?replication` endpoints
+- **Real-time event-driven replication** — Replicate objects immediately on mutation events
+- **Existing object replication** — Replicate pre-existing objects when enabling replication rules
+- **Delete marker replication** — Optionally replicate delete markers to target buckets
+- **Site replication** — IAM and bucket configuration sync across sites
+- **KMS integration** — HashiCorp Vault and local key provider for envelope encryption
+- **Remote tiering** — Tier cold objects to an S3-compatible remote backend
+- **RestoreObject API** — `POST /{bucket}/{key}?restore` to initiate restore from cold tier
+- **Storage classes** — STANDARD and REDUCED_REDUNDANCY storage class support
+- **Compression exclusions** — Skip compression for already-compressed file types (GZIP, JPEG, MP4, etc.)
+- **Real-time event streaming** — Server-Sent Events at `/api/v1/events` for live S3 event monitoring
+- **Real-time log streaming** — Server-Sent Events at `/api/v1/logs` for live access log tailing
+- **Request tracing** — Server-Sent Events at `/api/v1/trace` for per-request latency tracing
+- **Health diagnostics** — Detailed system diagnostics at `/api/v1/diagnostics` (disk, memory, goroutines, DB stats)
+- **Manual heal API** — `POST /api/v1/heal` to trigger erasure-coded object repair on demand
+- **Speedtest** — `POST /api/v1/speedtest` to benchmark storage throughput
+- **Batch operations** — Bulk delete and copy processor for large-scale object operations
+- **PROXY protocol v1** — Accept PROXY protocol connections for real client IP behind load balancers
+- **Auto-TLS** — Automatic Let's Encrypt certificates with self-signed fallback
+- **Inter-node network separation** — Bind cluster traffic to a dedicated network interface
+- **Bucket bandwidth throttling** — Per-bucket upload/download rate limits
+- **S3 Select on compressed files** — Query GZIP and BZIP2 compressed CSV/JSON objects with S3 Select
+- **S3 POST policy** — HTML form-based upload with policy document validation
+- **S3 Inventory reports** — Periodic CSV inventory of bucket contents
+- **Snowball/TAR bulk upload** — Upload TAR archives that are automatically extracted into objects
+- **FIFO quota** — Automatically delete oldest objects when bucket quota is exceeded
+- **AMQP/RabbitMQ notifications** — Publish S3 events to RabbitMQ exchanges
+- **PostgreSQL notifications** — Insert S3 events into a PostgreSQL table
+- **Elasticsearch notifications** — Index S3 events in Elasticsearch
 - **Docker image** — Multi-stage Dockerfile with built-in health check
 - **YAML config** — Simple configuration, sensible defaults
 
@@ -217,6 +277,20 @@ make build && ./vaults3
 | Cluster Join | `POST /cluster/join` | Done |
 | Cluster Leave | `POST /cluster/leave` | Done |
 | Replication Sync | `POST /_replication/sync` | Done |
+| List Objects V1 | `GET /{bucket}?marker=` | Done |
+| Replication Config | `PUT/GET/DELETE /{bucket}?replication` | Done |
+| Restore Object | `POST /{bucket}/{key}?restore` | Done |
+| POST Upload (Form) | `POST /{bucket}` (multipart/form-data) | Done |
+| Get Object (Part) | `GET /{bucket}/{key}?partNumber=N` | Done |
+| Event Stream | `GET /api/v1/events` (SSE) | Done |
+| Log Stream | `GET /api/v1/logs` (SSE) | Done |
+| Request Trace | `GET /api/v1/trace` (SSE) | Done |
+| Health Diagnostics | `GET /api/v1/diagnostics` | Done |
+| Manual Heal | `POST /api/v1/heal` | Done |
+| Speedtest | `POST /api/v1/speedtest` | Done |
+| Batch Operations | `POST /api/v1/batch` | Done |
+| STS AssumeRole | `POST /api/v1/sts/assume-role` | Done |
+| Inventory Reports | `GET /api/v1/inventory` | Done |
 
 ## Quick Start
 
@@ -732,9 +806,22 @@ notifications:
     addr: "localhost:6379"
     channel: "vaults3-events"   # pub/sub mode
     list_key: ""                # set for LPUSH queue mode
+  amqp:
+    enabled: true
+    url: "amqp://guest:guest@localhost:5672/"
+    exchange: "vaults3-events"
+    routing_key: "s3.events"
+  postgres:
+    enabled: true
+    dsn: "postgres://user:pass@localhost:5432/vaults3?sslmode=disable"
+    table: "s3_events"
+  elasticsearch:
+    enabled: true
+    urls: ["http://localhost:9200"]
+    index: "vaults3-events"
 ```
 
-In addition to per-bucket webhooks, you can enable global notification backends. All S3 events are published to every enabled backend. Multiple backends can be active simultaneously. Disabled backends add zero overhead.
+Additional backends: **AMQP/RabbitMQ** (publish to exchanges), **PostgreSQL** (insert into table), **Elasticsearch** (index events). In addition to per-bucket webhooks, you can enable global notification backends. All S3 events are published to every enabled backend. Multiple backends can be active simultaneously. Disabled backends add zero overhead.
 
 ### Async Replication
 
@@ -1017,6 +1104,7 @@ Supported SQL features:
 - Column references: `name`, `s3object.name`, `s.name`, `_1` (positional for CSV without headers)
 
 Input formats: CSV (with/without headers, custom delimiters), JSON Lines, JSON Document (array).
+Compressed input: GZIP and BZIP2 compressed CSV/JSON files are transparently decompressed before query execution.
 Output formats: JSON (one object per line) or CSV.
 
 ### Bucket Default Retention
@@ -1142,6 +1230,18 @@ VaultS3 is designed with security in mind:
 - **S3 Select record cap** — JSON/CSV parsing capped at 1M records to prevent memory exhaustion
 - **FUSE cache size caps** — Signature cache, HEAD cache, and LIST cache bounded to prevent unbounded memory growth
 - **GetObjectAttributes version support** — Respects `versionId` parameter and handles delete markers
+- **LDAP authentication** — Bind-based LDAP/LDAPS with group-to-policy mapping and TLS support
+- **External auth webhook** — Delegate authentication to an external HTTP endpoint with request validation
+- **KMS envelope encryption** — HashiCorp Vault and local key provider for data encryption key management
+- **Auto-TLS** — Automatic Let's Encrypt certificate provisioning with self-signed fallback
+- **PROXY protocol v1** — Real client IP extraction behind PROXY protocol-aware load balancers
+- **Governance bypass protection** — `x-amz-bypass-governance-retention` restricted to authorized principals
+- **IAM policy conditions** — `StringEquals`, `StringLike`, `IpAddress`, `DateLessThan` condition evaluation
+- **Bucket bandwidth throttling** — Per-bucket upload/download rate limits prevent resource monopolization
+- **POST policy validation** — HTML form upload policies validated for expiration, conditions, and signature
+- **Content-MD5 validation** — Server-side integrity verification on PUT rejects corrupted uploads
+- **S3 Checksum API** — CRC32, CRC32C, SHA1, SHA256 checksums verified on upload and returned on download
+- **Conditional request handling** — `If-Match`/`If-None-Match` ETag checks prevent lost updates (412 Precondition Failed)
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting policy and deployment best practices.
 
@@ -1153,23 +1253,25 @@ VaultS3/
 ├── cmd/vaults3-cli/           — CLI tool (bucket, object, user, replication commands)
 ├── internal/
 │   ├── config/                — YAML config loader
-│   ├── server/                — HTTP server and routing
-│   ├── s3/                    — S3 API handlers (auth, buckets, objects, multipart)
-│   ├── storage/               — Storage engine interface + filesystem + encryption
+│   ├── server/                — HTTP server, routing, and auto-TLS
+│   ├── s3/                    — S3 API handlers (auth, buckets, objects, multipart, checksums, preconditions, replication config, restore, POST upload, snowball)
+│   ├── storage/               — Storage engine interface + filesystem + encryption + KMS + storage classes
 │   ├── metadata/              — BoltDB metadata store
 │   ├── metrics/               — Prometheus-compatible metrics collector
-│   ├── iam/                   — IAM policy engine, identity, IP access control
-│   ├── notify/                — Event notification dispatcher (webhook delivery)
-│   ├── replication/           — Async replication worker (SigV4 signer, queue processor)
+│   ├── iam/                   — IAM policy engine, identity, IP access control, conditions, LDAP, external auth, STS AssumeRole
+│   ├── notify/                — Event notification dispatcher (webhook, Kafka, NATS, Redis, AMQP, PostgreSQL, Elasticsearch)
+│   ├── replication/           — Async replication worker (SigV4 signer, queue processor, per-bucket rules)
 │   ├── search/                — In-memory full-text search index
 │   ├── scanner/               — Webhook virus scanning with quarantine
-│   ├── ratelimit/             — Token bucket rate limiter (per IP and per key)
-│   ├── tiering/               — Hot/cold data tiering manager
+│   ├── ratelimit/             — Token bucket rate limiter (per IP, per key, per bucket bandwidth)
+│   ├── tiering/               — Hot/cold data tiering manager + remote S3-compatible tier
 │   ├── backup/                — Backup scheduler with local targets
 │   ├── versioning/            — Version diff (LCS), tagging, rollback
 │   ├── fuse/                  — FUSE filesystem mount (go-fuse/v2)
-│   ├── middleware/             — HTTP middleware (request ID, panic recovery, latency, security headers)
-│   ├── api/                   — Dashboard REST API (JWT auth, IAM, STS, audit)
+│   ├── middleware/             — HTTP middleware (request ID, panic recovery, latency, security headers, PROXY protocol)
+│   ├── api/                   — Dashboard REST API (JWT auth, IAM, STS, audit, events, logs, trace, diagnostics, heal, speedtest)
+│   ├── batch/                 — Batch operations processor (bulk delete/copy)
+│   ├── inventory/             — S3 Inventory report generator (periodic CSV)
 │   └── dashboard/             — Embedded React SPA
 ├── web/                       — React dashboard source (Vite + Tailwind)
 ├── configs/vaults3.yaml       — Default configuration
@@ -1285,3 +1387,55 @@ VaultS3/
 - [x] Versioning tests (LCS diff algorithm, text type detection, metadata diff, tag store CRUD)
 - [x] Notify tests (dispatcher lifecycle, backend publish, webhook delivery, event/key filtering, retry)
 - [x] Python integration test (security headers, CORS, auth, validation, bucket CRUD, versioning, settings)
+- [x] User metadata (x-amz-meta-*) on PUT/GET/HEAD
+- [x] Conditional GET/PUT (If-Modified-Since, If-None-Match, If-Match → 304/412)
+- [x] Content-MD5 validation on PUT
+- [x] Metadata-only copy (x-amz-metadata-directive: REPLACE)
+- [x] Conditional copy (x-amz-copy-source-if-* headers)
+- [x] Response header overrides (?response-content-type, etc.)
+- [x] Inline tagging and retention on PUT
+- [x] Canned ACL headers (x-amz-acl, x-amz-grant-*)
+- [x] S3 Checksum API (CRC32, CRC32C, SHA1, SHA256)
+- [x] Parts count header on HEAD (x-amz-mp-parts-count)
+- [x] ListObjectsV1 (marker-based pagination)
+- [x] ListBuckets with prefix filter
+- [x] Versioning suspend support
+- [x] GetObject by part number (?partNumber=N)
+- [x] Advanced lifecycle rules (NoncurrentVersionExpiration, AbortIncompleteMultipartUpload, MaxNoncurrentVersions, ExpiredObjectDeleteMarker cleanup, object size filter)
+- [x] IAM policy conditions (StringEquals, StringLike, IpAddress, DateLessThan)
+- [x] Policy variables (${aws:username}, ${aws:userid})
+- [x] LDAP authentication with group mapping
+- [x] STS AssumeRole with session policies
+- [x] External auth webhook
+- [x] Access key description & status
+- [x] Governance bypass (x-amz-bypass-governance-retention)
+- [x] Per-bucket replication rules with prefix/tag filters
+- [x] S3 Replication Config API (PUT/GET/DELETE /{bucket}?replication)
+- [x] Real-time event-driven replication
+- [x] Existing object replication
+- [x] Delete marker replication
+- [x] Site replication (IAM + bucket config sync)
+- [x] KMS integration (HashiCorp Vault + local key provider)
+- [x] Remote tiering (S3-compatible cold tier)
+- [x] RestoreObject API (POST /{bucket}/{key}?restore)
+- [x] Storage classes (STANDARD, REDUCED_REDUNDANCY)
+- [x] Compression exclusions (skip already-compressed file types)
+- [x] Real-time event streaming (SSE at /api/v1/events)
+- [x] Real-time log streaming (SSE at /api/v1/logs)
+- [x] Request tracing (SSE at /api/v1/trace)
+- [x] Health diagnostics (/api/v1/diagnostics)
+- [x] Manual heal API (POST /api/v1/heal)
+- [x] Speedtest (POST /api/v1/speedtest)
+- [x] Batch operations processor (bulk delete/copy)
+- [x] PROXY protocol v1 support
+- [x] Auto-TLS (Let's Encrypt + self-signed fallback)
+- [x] Inter-node network separation
+- [x] Bucket bandwidth throttling
+- [x] S3 Select on compressed files (GZIP, BZIP2)
+- [x] S3 POST policy (HTML form-based upload)
+- [x] S3 Inventory reports (periodic CSV)
+- [x] Snowball/TAR bulk upload
+- [x] FIFO quota (delete oldest objects when quota exceeded)
+- [x] AMQP/RabbitMQ notification backend
+- [x] PostgreSQL notification backend
+- [x] Elasticsearch notification backend

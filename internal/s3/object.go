@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/xml"
@@ -32,6 +33,7 @@ type ObjectHandler struct {
 }
 
 // checkQuota verifies bucket quota limits before writing.
+// If FIFOQuota is enabled, oldest objects are deleted to make room.
 func (h *ObjectHandler) checkQuota(w http.ResponseWriter, bucket string, incomingSize int64) bool {
 	info, err := h.store.GetBucket(bucket)
 	if err != nil {
@@ -43,6 +45,18 @@ func (h *ObjectHandler) checkQuota(w http.ResponseWriter, bucket string, incomin
 
 	currentSize, currentCount, _ := h.engine.BucketSize(bucket)
 
+	if info.FIFOQuota {
+		// FIFO: delete oldest objects to make room
+		if info.MaxObjects > 0 && currentCount >= info.MaxObjects {
+			h.fifoEvict(bucket, 1, 0)
+		}
+		if info.MaxSizeBytes > 0 && incomingSize > 0 && currentSize+incomingSize > info.MaxSizeBytes {
+			needed := currentSize + incomingSize - info.MaxSizeBytes
+			h.fifoEvict(bucket, 0, needed)
+		}
+		return true
+	}
+
 	if info.MaxObjects > 0 && currentCount >= info.MaxObjects {
 		writeS3Error(w, "QuotaExceeded", "Maximum object count exceeded", http.StatusForbidden)
 		return false
@@ -53,6 +67,61 @@ func (h *ObjectHandler) checkQuota(w http.ResponseWriter, bucket string, incomin
 	}
 
 	return true
+}
+
+// fifoEvict deletes oldest objects until count or size requirements are met.
+func (h *ObjectHandler) fifoEvict(bucket string, countToFree int64, bytesToFree int64) {
+	objects, _, err := h.engine.ListObjects(bucket, "", "", 10000)
+	if err != nil || len(objects) == 0 {
+		return
+	}
+
+	// Objects from ListObjects are typically in alphabetical order.
+	// Sort by modified time to find oldest.
+	type objMeta struct {
+		key  string
+		size int64
+		mod  time.Time
+	}
+	var metas []objMeta
+	for _, obj := range objects {
+		meta, err := h.store.GetObjectMeta(bucket, obj.Key)
+		if err != nil {
+			continue
+		}
+		metas = append(metas, objMeta{key: obj.Key, size: meta.Size, mod: time.Unix(0, meta.LastModified)})
+	}
+	// Sort oldest first
+	for i := 0; i < len(metas); i++ {
+		for j := i + 1; j < len(metas); j++ {
+			if metas[j].mod.Before(metas[i].mod) {
+				metas[i], metas[j] = metas[j], metas[i]
+			}
+		}
+	}
+
+	var freedCount int64
+	var freedBytes int64
+	for _, m := range metas {
+		if countToFree > 0 && freedCount >= countToFree && bytesToFree <= 0 {
+			break
+		}
+		if bytesToFree > 0 && freedBytes >= bytesToFree && countToFree <= 0 {
+			break
+		}
+		if countToFree > 0 && freedCount >= countToFree && bytesToFree > 0 && freedBytes >= bytesToFree {
+			break
+		}
+
+		h.engine.DeleteObject(bucket, m.key)
+		h.store.DeleteObjectMeta(bucket, m.key)
+		freedCount++
+		freedBytes += m.size
+
+		if h.onSearchUpdate != nil {
+			h.onSearchUpdate("delete", bucket, m.key)
+		}
+	}
 }
 
 // generateVersionID creates a unique version ID using timestamp + random bytes.
@@ -81,6 +150,12 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		return
 	}
 
+	// Snowball/TAR auto-extract
+	if strings.EqualFold(r.Header.Get("X-Amz-Meta-Snowball-Auto-Extract"), "true") {
+		h.SnowballUpload(w, r, bucket)
+		return
+	}
+
 	// Enforce max single object size (5GB, per S3 spec)
 	const maxPutSize int64 = 5 * 1024 * 1024 * 1024 // 5GB
 	if r.ContentLength > maxPutSize {
@@ -93,14 +168,42 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		return
 	}
 
+	// Conditional PUT: check If-Match / If-None-Match
+	if checkPutPreconditions(w, r, h.store, bucket, key) {
+		return
+	}
+
+	// Read body for Content-MD5 and checksum validation
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeS3Error(w, "InternalError", "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+
+	// Validate Content-MD5 if present
+	if validateContentMD5(w, r.Header.Get("Content-MD5"), body) {
+		return
+	}
+
+	// Validate and compute S3 checksums
+	csha256, ccrc32, ccrc32c, csha1, checksumErr := checksumFromRequest(r, body)
+	if checksumErr != nil {
+		writeS3Error(w, "BadDigest", checksumErr.Error(), http.StatusBadRequest)
+		return
+	}
+
 	versioning, _ := h.store.GetBucketVersioning(bucket)
 	ct := detectContentType(r, key)
 	now := time.Now().UTC()
 
+	// Parse extended metadata from headers
+	userMeta := parseUserMetadata(r)
+	tags := parseInlineTags(r)
+
 	if versioning == "Enabled" {
 		versionID := generateVersionID()
 
-		written, etag, err := h.engine.PutObjectVersion(bucket, key, versionID, r.Body, r.ContentLength)
+		written, etag, err := h.engine.PutObjectVersion(bucket, key, versionID, bytes.NewReader(body), int64(len(body)))
 		if err != nil {
 			slog.Error("internal error", "error", err)
 			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
@@ -114,22 +217,49 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		}
 
 		meta := metadata.ObjectMeta{
-			Bucket:       bucket,
-			Key:          key,
-			ContentType:  ct,
-			ETag:         etag,
-			Size:         written,
-			LastModified: now.Unix(),
-			VersionID:    versionID,
-			IsLatest:     true,
+			Bucket:             bucket,
+			Key:                key,
+			ContentType:        ct,
+			ETag:               etag,
+			Size:               written,
+			LastModified:       now.Unix(),
+			VersionID:          versionID,
+			IsLatest:           true,
+			Tags:               tags,
+			UserMetadata:       userMeta,
+			ContentEncoding:    r.Header.Get("Content-Encoding"),
+			ContentDisposition: r.Header.Get("Content-Disposition"),
+			CacheControl:       r.Header.Get("Cache-Control"),
+			ContentLanguage:    r.Header.Get("Content-Language"),
+			WebsiteRedirect:    r.Header.Get("X-Amz-Website-Redirect-Location"),
+			ChecksumSHA256:     csha256,
+			ChecksumCRC32:      ccrc32,
+			ChecksumCRC32C:     ccrc32c,
+			ChecksumSHA1:       csha1,
 		}
 
-		// Apply bucket default retention if configured
-		if bucketInfo, err := h.store.GetBucket(bucket); err == nil {
-			if bucketInfo.DefaultRetentionMode != "" && bucketInfo.DefaultRetentionDays > 0 {
-				meta.RetentionMode = bucketInfo.DefaultRetentionMode
-				meta.RetentionUntil = now.Unix() + int64(bucketInfo.DefaultRetentionDays*86400)
+		// Apply inline retention
+		if mode := r.Header.Get("X-Amz-Object-Lock-Mode"); mode != "" {
+			meta.RetentionMode = mode
+			if until := r.Header.Get("X-Amz-Object-Lock-Retain-Until-Date"); until != "" {
+				if t, err := time.Parse(time.RFC3339, until); err == nil {
+					meta.RetentionUntil = t.Unix()
+				}
 			}
+		}
+
+		// Apply bucket default retention if configured and no inline retention
+		if meta.RetentionMode == "" {
+			if bucketInfo, err := h.store.GetBucket(bucket); err == nil {
+				if bucketInfo.DefaultRetentionMode != "" && bucketInfo.DefaultRetentionDays > 0 {
+					meta.RetentionMode = bucketInfo.DefaultRetentionMode
+					meta.RetentionUntil = now.Unix() + int64(bucketInfo.DefaultRetentionDays*86400)
+				}
+			}
+		}
+
+		if lh := r.Header.Get("X-Amz-Object-Lock-Legal-Hold"); strings.EqualFold(lh, "ON") {
+			meta.LegalHold = true
 		}
 
 		h.store.PutObjectVersion(meta)
@@ -140,6 +270,7 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		if h.encryptionEnabled {
 			w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
 		}
+		setChecksumHeaders(w, &meta)
 		w.WriteHeader(http.StatusOK)
 		if h.onNotification != nil {
 			h.onNotification("s3:ObjectCreated:Put", bucket, key, written, etag, versionID)
@@ -159,27 +290,106 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		return
 	}
 
-	// Non-versioned path (unchanged behavior)
-	written, etag, err := h.engine.PutObject(bucket, key, r.Body, r.ContentLength)
+	if versioning == "Suspended" {
+		// Suspended versioning: overwrite the "null" version
+		written, etag, err := h.engine.PutObjectVersion(bucket, key, "null", bytes.NewReader(body), int64(len(body)))
+		if err != nil {
+			slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+			return
+		}
+
+		// Remove any existing null version
+		if oldMeta, err := h.store.GetObjectVersion(bucket, key, "null"); err == nil {
+			oldMeta.IsLatest = false
+			h.store.PutObjectVersion(*oldMeta)
+		}
+
+		meta := metadata.ObjectMeta{
+			Bucket:             bucket,
+			Key:                key,
+			ContentType:        ct,
+			ETag:               etag,
+			Size:               written,
+			LastModified:       now.Unix(),
+			VersionID:          "null",
+			IsLatest:           true,
+			Tags:               tags,
+			UserMetadata:       userMeta,
+			ContentEncoding:    r.Header.Get("Content-Encoding"),
+			ContentDisposition: r.Header.Get("Content-Disposition"),
+			CacheControl:       r.Header.Get("Cache-Control"),
+			ContentLanguage:    r.Header.Get("Content-Language"),
+			WebsiteRedirect:    r.Header.Get("X-Amz-Website-Redirect-Location"),
+			ChecksumSHA256:     csha256,
+			ChecksumCRC32:      ccrc32,
+			ChecksumCRC32C:     ccrc32c,
+			ChecksumSHA1:       csha1,
+		}
+
+		h.store.PutObjectVersion(meta)
+		h.store.PutObjectMeta(meta)
+
+		w.Header().Set("ETag", etag)
+		w.Header().Set("X-Amz-Version-Id", "null")
+		if h.encryptionEnabled {
+			w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
+		}
+		setChecksumHeaders(w, &meta)
+		w.WriteHeader(http.StatusOK)
+		if h.onNotification != nil {
+			h.onNotification("s3:ObjectCreated:Put", bucket, key, written, etag, "null")
+		}
+		if h.onReplication != nil {
+			h.onReplication("s3:ObjectCreated:Put", bucket, key, written, etag, "null")
+		}
+		if h.onLambda != nil {
+			h.onLambda("s3:ObjectCreated:Put", bucket, key, written, etag, "null")
+		}
+		if h.onScan != nil {
+			h.onScan(bucket, key, written)
+		}
+		if h.onSearchUpdate != nil {
+			h.onSearchUpdate("put", bucket, key)
+		}
+		return
+	}
+
+	// Non-versioned path
+	written, etag, err := h.engine.PutObject(bucket, key, bytes.NewReader(body), int64(len(body)))
 	if err != nil {
 		slog.Error("internal error", "error", err)
 		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
 
-	h.store.PutObjectMeta(metadata.ObjectMeta{
-		Bucket:       bucket,
-		Key:          key,
-		ContentType:  ct,
-		ETag:         etag,
-		Size:         written,
-		LastModified: now.Unix(),
-	})
+	meta := metadata.ObjectMeta{
+		Bucket:             bucket,
+		Key:                key,
+		ContentType:        ct,
+		ETag:               etag,
+		Size:               written,
+		LastModified:       now.Unix(),
+		Tags:               tags,
+		UserMetadata:       userMeta,
+		ContentEncoding:    r.Header.Get("Content-Encoding"),
+		ContentDisposition: r.Header.Get("Content-Disposition"),
+		CacheControl:       r.Header.Get("Cache-Control"),
+		ContentLanguage:    r.Header.Get("Content-Language"),
+		WebsiteRedirect:    r.Header.Get("X-Amz-Website-Redirect-Location"),
+		ChecksumSHA256:     csha256,
+		ChecksumCRC32:      ccrc32,
+		ChecksumCRC32C:     ccrc32c,
+		ChecksumSHA1:       csha1,
+	}
+
+	h.store.PutObjectMeta(meta)
 
 	w.Header().Set("ETag", etag)
 	if h.encryptionEnabled {
 		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
 	}
+	setChecksumHeaders(w, &meta)
 	w.WriteHeader(http.StatusOK)
 	if h.onNotification != nil {
 		h.onNotification("s3:ObjectCreated:Put", bucket, key, written, etag, "")
@@ -257,14 +467,29 @@ func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket
 	}
 	defer reader.Close()
 
+	// Conditional GET: check preconditions before sending body
+	if checkGetPreconditions(w, r, meta) {
+		return
+	}
+
 	if meta != nil {
 		w.Header().Set("Content-Type", meta.ContentType)
 		w.Header().Set("ETag", meta.ETag)
+		w.Header().Set("Last-Modified", time.Unix(meta.LastModified, 0).UTC().Format(http.TimeFormat))
+		setHTTPMetadataHeaders(w, meta)
+		setUserMetadataHeaders(w, meta)
+		setChecksumHeaders(w, meta)
+		if meta.PartsCount > 0 {
+			w.Header().Set("X-Amz-Mp-Parts-Count", strconv.Itoa(meta.PartsCount))
+		}
 	}
 	w.Header().Set("Accept-Ranges", "bytes")
 	if h.encryptionEnabled {
 		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
 	}
+
+	// Apply response header overrides from query params
+	applyResponseOverrides(w, r)
 
 	// Track last access time for tiering
 	if meta != nil {
@@ -273,6 +498,39 @@ func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket
 		} else {
 			go h.store.UpdateLastAccess(bucket, key)
 		}
+	}
+
+	// GetObject by part number: ?partNumber=N
+	if pn := r.URL.Query().Get("partNumber"); pn != "" {
+		partNum, err := strconv.Atoi(pn)
+		if err != nil || partNum < 1 {
+			writeS3Error(w, "InvalidArgument", "Invalid partNumber", http.StatusBadRequest)
+			return
+		}
+		if meta == nil || meta.PartsCount == 0 || len(meta.PartBoundaries) == 0 {
+			writeS3Error(w, "InvalidArgument", "Object is not a multipart upload", http.StatusBadRequest)
+			return
+		}
+		if partNum > meta.PartsCount {
+			writeS3Error(w, "InvalidArgument", "partNumber exceeds total parts", http.StatusBadRequest)
+			return
+		}
+		var partStart int64
+		if partNum > 1 {
+			partStart = meta.PartBoundaries[partNum-2]
+		}
+		partEnd := meta.PartBoundaries[partNum-1] - 1
+		partLen := partEnd - partStart + 1
+
+		if _, err := reader.Seek(partStart, io.SeekStart); err != nil {
+			writeS3Error(w, "InternalError", "Seek failed", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", partStart, partEnd, size))
+		w.Header().Set("Content-Length", strconv.FormatInt(partLen, 10))
+		w.WriteHeader(http.StatusPartialContent)
+		io.CopyN(w, reader, partLen)
+		return
 	}
 
 	rangeHeader := r.Header.Get("Range")
@@ -366,8 +624,9 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 
 	if versionID != "" {
 		// Delete specific version permanently
-		// Check object lock first
-		if err := h.checkObjectLock(bucket, key, versionID); err != nil {
+		// Check object lock first (with governance bypass if header present)
+		bypassGov := strings.EqualFold(r.Header.Get("X-Amz-Bypass-Governance-Retention"), "true")
+		if err := h.checkObjectLock(bucket, key, versionID, bypassGov); err != nil {
 			writeS3Error(w, "AccessDenied", err.Error(), http.StatusForbidden)
 			return
 		}
@@ -442,6 +701,41 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 		return
 	}
 
+	if versioning == "Suspended" {
+		// Suspended versioning: create a null-version delete marker
+		// Remove existing null version if any
+		h.engine.DeleteObjectVersion(bucket, key, "null")
+		h.store.DeleteObjectVersion(bucket, key, "null")
+
+		dm := metadata.ObjectMeta{
+			Bucket:       bucket,
+			Key:          key,
+			VersionID:    "null",
+			IsLatest:     true,
+			DeleteMarker: true,
+			LastModified: time.Now().UTC().Unix(),
+		}
+		h.store.PutObjectVersion(dm)
+		h.store.PutObjectMeta(dm)
+
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		w.Header().Set("X-Amz-Version-Id", "null")
+		w.WriteHeader(http.StatusNoContent)
+		if h.onNotification != nil {
+			h.onNotification("s3:ObjectRemoved:Delete", bucket, key, 0, "", "null")
+		}
+		if h.onReplication != nil {
+			h.onReplication("s3:ObjectRemoved:Delete", bucket, key, 0, "", "null")
+		}
+		if h.onLambda != nil {
+			h.onLambda("s3:ObjectRemoved:Delete", bucket, key, 0, "", "null")
+		}
+		if h.onSearchUpdate != nil {
+			h.onSearchUpdate("delete", bucket, key)
+		}
+		return
+	}
+
 	// Non-versioned: delete normally
 	if err := h.engine.DeleteObject(bucket, key); err != nil {
 		slog.Error("internal error", "error", err)
@@ -466,7 +760,8 @@ func (h *ObjectHandler) DeleteObject(w http.ResponseWriter, r *http.Request, buc
 }
 
 // checkObjectLock checks if an object version is locked (legal hold or retention).
-func (h *ObjectHandler) checkObjectLock(bucket, key, versionID string) error {
+// If bypassGovernance is true, GOVERNANCE retention is skipped (requires s3:BypassGovernanceRetention).
+func (h *ObjectHandler) checkObjectLock(bucket, key, versionID string, bypassGovernance ...bool) error {
 	meta, err := h.store.GetObjectVersion(bucket, key, versionID)
 	if err != nil {
 		return nil // version doesn't exist in metadata, allow delete
@@ -478,6 +773,10 @@ func (h *ObjectHandler) checkObjectLock(bucket, key, versionID string) error {
 
 	if meta.RetentionMode != "" && meta.RetentionUntil > 0 {
 		if time.Now().UTC().Unix() < meta.RetentionUntil {
+			// Allow governance bypass if requested
+			if meta.RetentionMode == "GOVERNANCE" && len(bypassGovernance) > 0 && bypassGovernance[0] {
+				return nil
+			}
 			return fmt.Errorf("object is under %s retention until %s",
 				meta.RetentionMode,
 				time.Unix(meta.RetentionUntil, 0).UTC().Format(time.RFC3339))
@@ -543,10 +842,22 @@ func (h *ObjectHandler) HeadObject(w http.ResponseWriter, r *http.Request, bucke
 		}
 	}
 
+	// Conditional HEAD: check preconditions
+	if checkGetPreconditions(w, r, meta) {
+		return
+	}
+
 	w.Header().Set("Content-Type", meta.ContentType)
 	w.Header().Set("ETag", meta.ETag)
 	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
+	w.Header().Set("Last-Modified", time.Unix(meta.LastModified, 0).UTC().Format(http.TimeFormat))
 	w.Header().Set("Accept-Ranges", "bytes")
+	setHTTPMetadataHeaders(w, meta)
+	setUserMetadataHeaders(w, meta)
+	setChecksumHeaders(w, meta)
+	if meta.PartsCount > 0 {
+		w.Header().Set("X-Amz-Mp-Parts-Count", strconv.Itoa(meta.PartsCount))
+	}
 	if h.encryptionEnabled {
 		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
 	}
@@ -583,6 +894,14 @@ func (h *ObjectHandler) CopyObject(w http.ResponseWriter, r *http.Request, bucke
 		return
 	}
 
+	// Get source metadata for conditional copy checks and metadata copy
+	srcMeta, _ := h.store.GetObjectMeta(srcBucket, srcKey)
+
+	// Check conditional copy preconditions
+	if checkCopyPreconditions(w, r, srcMeta) {
+		return
+	}
+
 	// Read source object
 	reader, size, err := h.engine.GetObject(srcBucket, srcKey)
 	if err != nil {
@@ -601,20 +920,46 @@ func (h *ObjectHandler) CopyObject(w http.ResponseWriter, r *http.Request, bucke
 
 	now := time.Now().UTC()
 
-	// Copy metadata from source, or detect fresh
-	ct := "application/octet-stream"
-	if srcMeta, err := h.store.GetObjectMeta(srcBucket, srcKey); err == nil {
-		ct = srcMeta.ContentType
-	}
+	// Determine metadata: REPLACE uses request headers, COPY (default) uses source
+	metadataDirective := r.Header.Get("X-Amz-Metadata-Directive")
 
-	h.store.PutObjectMeta(metadata.ObjectMeta{
+	meta := metadata.ObjectMeta{
 		Bucket:       bucket,
 		Key:          key,
-		ContentType:  ct,
 		ETag:         etag,
 		Size:         written,
 		LastModified: now.Unix(),
-	})
+	}
+
+	if strings.EqualFold(metadataDirective, "REPLACE") {
+		// Use metadata from request headers
+		meta.ContentType = detectContentType(r, key)
+		meta.UserMetadata = parseUserMetadata(r)
+		meta.Tags = parseInlineTags(r)
+		meta.ContentEncoding = r.Header.Get("Content-Encoding")
+		meta.ContentDisposition = r.Header.Get("Content-Disposition")
+		meta.CacheControl = r.Header.Get("Cache-Control")
+		meta.ContentLanguage = r.Header.Get("Content-Language")
+		meta.WebsiteRedirect = r.Header.Get("X-Amz-Website-Redirect-Location")
+	} else if srcMeta != nil {
+		// COPY (default): copy metadata from source
+		meta.ContentType = srcMeta.ContentType
+		meta.UserMetadata = srcMeta.UserMetadata
+		meta.Tags = srcMeta.Tags
+		meta.ContentEncoding = srcMeta.ContentEncoding
+		meta.ContentDisposition = srcMeta.ContentDisposition
+		meta.CacheControl = srcMeta.CacheControl
+		meta.ContentLanguage = srcMeta.ContentLanguage
+		meta.WebsiteRedirect = srcMeta.WebsiteRedirect
+		meta.ChecksumSHA256 = srcMeta.ChecksumSHA256
+		meta.ChecksumCRC32 = srcMeta.ChecksumCRC32
+		meta.ChecksumCRC32C = srcMeta.ChecksumCRC32C
+		meta.ChecksumSHA1 = srcMeta.ChecksumSHA1
+	} else {
+		meta.ContentType = "application/octet-stream"
+	}
+
+	h.store.PutObjectMeta(meta)
 
 	type copyResult struct {
 		XMLName      xml.Name `xml:"CopyObjectResult"`
@@ -981,6 +1326,105 @@ func (h *ObjectHandler) ListObjects(w http.ResponseWriter, r *http.Request, buck
 	writeXML(w, http.StatusOK, resp)
 }
 
+// ListObjectsV1 handles GET /{bucket} (V1 with marker-based pagination).
+func (h *ObjectHandler) ListObjectsV1(w http.ResponseWriter, r *http.Request, bucket string) {
+	if !h.store.BucketExists(bucket) {
+		writeS3Error(w, "NoSuchBucket", "Bucket does not exist", http.StatusNotFound)
+		return
+	}
+
+	prefix := r.URL.Query().Get("prefix")
+	delimiter := r.URL.Query().Get("delimiter")
+	marker := r.URL.Query().Get("marker")
+	maxKeysStr := r.URL.Query().Get("max-keys")
+	maxKeys := 1000
+	if maxKeysStr != "" {
+		if mk, err := strconv.Atoi(maxKeysStr); err == nil && mk > 0 && mk <= 1000 {
+			maxKeys = mk
+		}
+	}
+
+	// V1 uses marker as start-after
+	objects, truncated, err := h.engine.ListObjects(bucket, prefix, marker, maxKeys)
+	if err != nil {
+		slog.Error("internal error", "error", err)
+		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+		return
+	}
+
+	type xmlContent struct {
+		Key          string `xml:"Key"`
+		LastModified string `xml:"LastModified"`
+		ETag         string `xml:"ETag"`
+		Size         int64  `xml:"Size"`
+		StorageClass string `xml:"StorageClass"`
+	}
+	type xmlCommonPrefix struct {
+		Prefix string `xml:"Prefix"`
+	}
+	type xmlV1Response struct {
+		XMLName        xml.Name          `xml:"ListBucketResult"`
+		Xmlns          string            `xml:"xmlns,attr"`
+		Name           string            `xml:"Name"`
+		Prefix         string            `xml:"Prefix"`
+		Marker         string            `xml:"Marker"`
+		Delimiter      string            `xml:"Delimiter,omitempty"`
+		MaxKeys        int               `xml:"MaxKeys"`
+		IsTruncated    bool              `xml:"IsTruncated"`
+		Contents       []xmlContent      `xml:"Contents"`
+		CommonPrefixes []xmlCommonPrefix `xml:"CommonPrefixes,omitempty"`
+		NextMarker     string            `xml:"NextMarker,omitempty"`
+	}
+
+	resp := xmlV1Response{
+		Xmlns:       "http://s3.amazonaws.com/doc/2006-03-01/",
+		Name:        bucket,
+		Prefix:      prefix,
+		Marker:      marker,
+		Delimiter:   delimiter,
+		MaxKeys:     maxKeys,
+		IsTruncated: truncated,
+	}
+
+	if delimiter != "" {
+		seen := make(map[string]bool)
+		for _, obj := range objects {
+			rel := strings.TrimPrefix(obj.Key, prefix)
+			if idx := strings.Index(rel, delimiter); idx >= 0 {
+				cp := prefix + rel[:idx+len(delimiter)]
+				if !seen[cp] {
+					seen[cp] = true
+					resp.CommonPrefixes = append(resp.CommonPrefixes, xmlCommonPrefix{Prefix: cp})
+				}
+			} else {
+				resp.Contents = append(resp.Contents, xmlContent{
+					Key:          obj.Key,
+					LastModified: time.Unix(obj.LastModified, 0).UTC().Format(time.RFC3339),
+					ETag:         obj.ETag,
+					Size:         obj.Size,
+					StorageClass: "STANDARD",
+				})
+			}
+		}
+	} else {
+		for _, obj := range objects {
+			resp.Contents = append(resp.Contents, xmlContent{
+				Key:          obj.Key,
+				LastModified: time.Unix(obj.LastModified, 0).UTC().Format(time.RFC3339),
+				ETag:         obj.ETag,
+				Size:         obj.Size,
+				StorageClass: "STANDARD",
+			})
+		}
+	}
+
+	if truncated && len(resp.Contents) > 0 {
+		resp.NextMarker = resp.Contents[len(resp.Contents)-1].Key
+	}
+
+	writeXML(w, http.StatusOK, resp)
+}
+
 // GetObjectAttributes handles GET /{bucket}/{key}?attributes.
 func (h *ObjectHandler) GetObjectAttributes(w http.ResponseWriter, r *http.Request, bucket, key string) {
 	if !h.store.BucketExists(bucket) {
@@ -1009,7 +1453,12 @@ func (h *ObjectHandler) GetObjectAttributes(w http.ResponseWriter, r *http.Reque
 	type xmlObjectParts struct {
 		TotalPartsCount int `xml:"TotalPartsCount"`
 	}
-	type xmlChecksum struct{}
+	type xmlChecksum struct {
+		ChecksumSHA256 string `xml:"ChecksumSHA256,omitempty"`
+		ChecksumCRC32  string `xml:"ChecksumCRC32,omitempty"`
+		ChecksumCRC32C string `xml:"ChecksumCRC32C,omitempty"`
+		ChecksumSHA1   string `xml:"ChecksumSHA1,omitempty"`
+	}
 	type xmlObjectAttributes struct {
 		XMLName      xml.Name        `xml:"GetObjectAttributesResponse"`
 		ETag         string          `xml:"ETag,omitempty"`
@@ -1023,6 +1472,19 @@ func (h *ObjectHandler) GetObjectAttributes(w http.ResponseWriter, r *http.Reque
 		ETag:         meta.ETag,
 		ObjectSize:   meta.Size,
 		StorageClass: "STANDARD",
+	}
+
+	if meta.ChecksumSHA256 != "" || meta.ChecksumCRC32 != "" || meta.ChecksumCRC32C != "" || meta.ChecksumSHA1 != "" {
+		resp.Checksum = &xmlChecksum{
+			ChecksumSHA256: meta.ChecksumSHA256,
+			ChecksumCRC32:  meta.ChecksumCRC32,
+			ChecksumCRC32C: meta.ChecksumCRC32C,
+			ChecksumSHA1:   meta.ChecksumSHA1,
+		}
+	}
+
+	if meta.PartsCount > 0 {
+		resp.ObjectParts = &xmlObjectParts{TotalPartsCount: meta.PartsCount}
 	}
 
 	if meta.VersionID != "" {

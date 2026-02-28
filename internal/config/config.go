@@ -203,6 +203,8 @@ type ServerConfig struct {
 	Domain              string    `yaml:"domain"` // base domain for virtual-hosted URLs (e.g. "localhost", "s3.example.com")
 	ShutdownTimeoutSecs int       `yaml:"shutdown_timeout_secs"`
 	TLS                 TLSConfig `yaml:"tls"`
+	InterNodeAddress    string    `yaml:"internode_address"` // separate bind address for inter-node traffic
+	InterNodePort       int       `yaml:"internode_port"`    // separate port for inter-node traffic
 }
 
 type TLSConfig struct {

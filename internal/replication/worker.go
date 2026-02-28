@@ -43,6 +43,15 @@ func validatePeerURL(rawURL string) error {
 	return nil
 }
 
+// ReplicationEvent is sent via the event channel for real-time replication.
+type RealtimeEvent struct {
+	Type    string // "put" or "delete"
+	Bucket  string
+	Key     string
+	Size    int64
+	ETag    string
+}
+
 // Worker handles async replication to peer VaultS3 instances.
 type Worker struct {
 	store      *metadata.Store
@@ -52,6 +61,7 @@ type Worker struct {
 	maxRetries int
 	batchSize  int
 	client     *http.Client
+	eventCh    chan RealtimeEvent
 }
 
 func NewWorker(store *metadata.Store, engine storage.Engine, cfg config.ReplicationConfig) *Worker {
@@ -76,10 +86,20 @@ func NewWorker(store *metadata.Store, engine storage.Engine, cfg config.Replicat
 		maxRetries: cfg.MaxRetries,
 		batchSize:  cfg.BatchSize,
 		client:     &http.Client{Timeout: 60 * time.Second},
+		eventCh:    make(chan RealtimeEvent, 1000),
 	}
 }
 
-// Run processes the replication queue on a ticker until ctx is cancelled.
+// Notify sends a real-time replication event (non-blocking).
+func (w *Worker) Notify(event RealtimeEvent) {
+	select {
+	case w.eventCh <- event:
+	default:
+		// Channel full, event will be picked up by periodic scan
+	}
+}
+
+// Run processes the replication queue on a ticker and event channel until ctx is cancelled.
 func (w *Worker) Run(ctx context.Context) {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
@@ -93,8 +113,28 @@ func (w *Worker) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			w.processQueue()
+		case evt := <-w.eventCh:
+			w.handleRealtimeEvent(evt)
 		}
 	}
+}
+
+// handleRealtimeEvent enqueues a realtime event for all peers.
+func (w *Worker) handleRealtimeEvent(evt RealtimeEvent) {
+	for name := range w.peers {
+		event := metadata.ReplicationEvent{
+			Peer:   name,
+			Type:   evt.Type,
+			Bucket: evt.Bucket,
+			Key:    evt.Key,
+			ETag:   evt.ETag,
+		}
+		if err := w.store.EnqueueReplication(event); err != nil {
+			slog.Error("replication enqueue error", "peer", name, "error", err)
+		}
+	}
+	// Process immediately
+	w.processQueue()
 }
 
 func (w *Worker) processQueue() {

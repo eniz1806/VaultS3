@@ -679,6 +679,29 @@ func (s *Server) Run() error {
 
 	slog.Info("search index ready", "objects", s.searchIndex.Count())
 
+	// Start separate inter-node listener if configured
+	var interNodeServer *http.Server
+	if s.cfg.Server.InterNodePort > 0 && s.clusterNode != nil {
+		interNodeAddr := fmt.Sprintf("%s:%d", s.cfg.Server.InterNodeAddress, s.cfg.Server.InterNodePort)
+		interNodeMux := http.NewServeMux()
+		interNodeMux.HandleFunc("/cluster/status", s.clusterNode.StatusHandler())
+		interNodeMux.HandleFunc("/cluster/join", s.clusterNode.JoinHandler())
+		interNodeMux.HandleFunc("/cluster/leave", s.clusterNode.LeaveHandler())
+		if s.biDirWorker != nil {
+			interNodeMux.HandleFunc("/_replication/sync", s.biDirWorker.HandleSyncRequest)
+		}
+		interNodeServer = &http.Server{
+			Addr:    interNodeAddr,
+			Handler: interNodeMux,
+		}
+		go func() {
+			slog.Info("inter-node listener started", "addr", interNodeAddr)
+			if err := interNodeServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Error("inter-node listener error", "error", err)
+			}
+		}()
+	}
+
 	// Start server in goroutine
 	errCh := make(chan error, 1)
 	go func() {
@@ -705,6 +728,9 @@ func (s *Server) Run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	if interNodeServer != nil {
+		interNodeServer.Shutdown(ctx)
+	}
 	if err := httpServer.Shutdown(ctx); err != nil {
 		slog.Error("graceful shutdown timed out", "timeout", timeout, "error", err)
 		return err

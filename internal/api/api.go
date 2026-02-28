@@ -31,9 +31,12 @@ type APIHandler struct {
 	scanner     *scanner.Scanner
 	tieringMgr  *tiering.Manager
 	backupSched *backup.Scheduler
-	rateLimiter *ratelimit.Limiter
-	oidc        *OIDCValidator
-	lambdaMgr   *lambda.TriggerManager
+	rateLimiter      *ratelimit.Limiter
+	oidc             *OIDCValidator
+	lambdaMgr        *lambda.TriggerManager
+	eventBus         *EventBus
+	logBroadcaster   *LogBroadcaster
+	traceBroadcaster *TraceBroadcaster
 }
 
 func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Collector, cfg *config.Config, activity *ActivityLog) *APIHandler {
@@ -55,6 +58,21 @@ func (h *APIHandler) SetSearchIndex(idx *search.Index) {
 // SetOIDCValidator sets the OIDC validator for the API handler.
 func (h *APIHandler) SetOIDCValidator(v *OIDCValidator) {
 	h.oidc = v
+}
+
+// SetEventBus sets the event bus for real-time event streaming.
+func (h *APIHandler) SetEventBus(eb *EventBus) {
+	h.eventBus = eb
+}
+
+// SetLogBroadcaster sets the log broadcaster for real-time log streaming.
+func (h *APIHandler) SetLogBroadcaster(lb *LogBroadcaster) {
+	h.logBroadcaster = lb
+}
+
+// SetTraceBroadcaster sets the trace broadcaster for request tracing.
+func (h *APIHandler) SetTraceBroadcaster(tb *TraceBroadcaster) {
+	h.traceBroadcaster = tb
 }
 
 func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +277,30 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Activity log route
 	case path == "/activity" && r.Method == http.MethodGet:
 		h.handleActivity(w, r)
+
+	// Operations: heal
+	case path == "/heal" && r.Method == http.MethodPost:
+		h.handleHeal(w, r)
+
+	// Operations: speedtest
+	case path == "/speedtest" && r.Method == http.MethodPost:
+		h.handleSpeedtest(w, r)
+
+	// Observability: real-time event streaming (SSE)
+	case path == "/events" && r.Method == http.MethodGet:
+		h.handleEvents(w, r)
+
+	// Observability: real-time log streaming (SSE)
+	case path == "/logs" && r.Method == http.MethodGet:
+		h.handleLogStream(w, r)
+
+	// Observability: request tracing (SSE)
+	case path == "/trace" && r.Method == http.MethodGet:
+		h.handleTrace(w, r)
+
+	// Observability: health diagnostics
+	case path == "/diagnostics" && r.Method == http.MethodGet:
+		h.handleDiagnostics(w, r)
 
 	default:
 		writeError(w, http.StatusNotFound, "not found")

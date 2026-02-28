@@ -3,7 +3,6 @@ package lifecycle
 import (
 	"io"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -235,8 +234,7 @@ func TestLifecycleMatchingLogic(t *testing.T) {
 // shouldSkipObject replicates the matching logic from Worker.scan()
 // to allow unit testing without BoltDB transaction issues.
 func shouldSkipObject(meta metadata.ObjectMeta, rule *metadata.LifecycleRule, now int64, versioning string) bool {
-	// Check prefix filter
-	if rule.Prefix != "" && !strings.HasPrefix(meta.Key, rule.Prefix) {
+	if !matchRule(rule, &meta) {
 		return true
 	}
 
